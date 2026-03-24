@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>《미래》2.0 TTS</title>
+<style>
+html, body {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-family: "KP CheonRiMa", "WKLGothic", sans-serif;
+}
+.container {
+  max-width: 800px;
+  margin: auto;
+  padding: 1rem 8px;
+  box-sizing: border-box;
+}
+#text {
+  width: calc(100% - 10px);
+  height: 10em;
+  box-sizing: border-box;
+}
+audio {
+  width: 100%;
+  margin-top: 0.5rem;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>《미래》2.0 TTS</h1>
+  <p><textarea id="text" autofocus></textarea></p>
+  <p><button type="button" id="synthesis_button">합성</button></p>
+  <audio id="audio" controls></audio>
+</div>
+<script>
+const text = document.getElementById("text");
+const audio = document.getElementById("audio");
+const btn = document.getElementById("synthesis_button");
+let blobUrl;
+
+async function synthesize() {
+  const t = text.value.trim();
+  if (!t) {
+    alert("없음");
+    return;
+  }
+  if (btn.disabled) return;
+  btn.disabled = true;
+  try {
+    const request_body = JSON.stringify({ text: t });
+    const response = await fetch("/synthesize/wav", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: request_body,
+    });
+    if (!response.ok) {
+      const txt = await response.text();
+      let msg = response.status + " " + response.statusText;
+      try {
+        const j = JSON.parse(txt);
+        if (j && j.error) msg = j.error;
+      } catch (_) {
+        if (txt) msg += "\n" + txt;
+      }
+      throw new Error(msg);
+    }
+    const blob = await response.blob();
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    blobUrl = URL.createObjectURL(blob);
+    audio.src = blobUrl;
+    audio.play().catch(() => {});
+  } catch (e) {
+    alert(e.message || String(e));
+  }
+  btn.disabled = false;
+}
+
+btn.addEventListener("click", () => { synthesize(); });
+text.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" && ev.ctrlKey) {
+    ev.preventDefault();
+    synthesize();
+  }
+});
+</script>
+</body>
+</html>
