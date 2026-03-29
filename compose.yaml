@@ -13,7 +13,3 @@ services:
       LISTEN: "0.0.0.0:3000"
       DIC: "/data/Voice"
       MAXIMUM_LENGTH: "0"
-    cap_add:
-      - IPC_LOCK
-    ulimits:
-      memlock: -1
