@@ -340,7 +340,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 [[package]]
 name = "kps9566"
 version = "0.1.0"
-source = "git+https://github.com/REO2248/kps9566-rs#60a1d67a2dbe89a640d2ff0154255274d4bb5fbc"
+source = "git+https://github.com/REO2248/kps9566-rs?rev=60a1d67a2dbe89a640d2ff0154255274d4bb5fbc#60a1d67a2dbe89a640d2ff0154255274d4bb5fbc"
 
 [[package]]
 name = "lazy_static"
