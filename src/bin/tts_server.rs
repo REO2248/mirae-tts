@@ -9,7 +9,7 @@ use axum::{
     extract::{Query, State},
     http::{header, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Response},
-    routing::{get, MethodRouter},
+    routing::{get},
     Json, Router,
 };
 use bytes::Bytes;
@@ -240,18 +240,6 @@ async fn index(State(_): State<Arc<AppState>>) -> Html<&'static str> {
     Html(include_str!("../../assets/index.html"))
 }
 
-fn routes() -> MethodRouter<Arc<AppState>> {
-    get(synthesize_wav_get).post(synthesize_wav)
-}
-
-fn routes_stream() -> MethodRouter<Arc<AppState>> {
-    get(synthesize_stream_get).post(synthesize_stream)
-}
-
-fn routes_raw() -> MethodRouter<Arc<AppState>> {
-    get(synthesize_raw_get).post(synthesize_raw)
-}
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt().init();
@@ -277,18 +265,13 @@ async fn main() {
         maximum_length: cli.maximum_length,
     });
 
-    let mut app = Router::new().route("/", get(index));
-    for path in ["/synthesize", "/synthesize/wav", "/synth.wav"] {
-        app = app.route(path, routes());
-    }
-    for path in ["/synthesize/stream", "/stream.pcm"] {
-        app = app.route(path, routes_stream());
-    }
-    for path in ["/synthesize/raw", "/synth.pcm"] {
-        app = app.route(path, routes_raw());
-    }
-
-    let app = app.layer(CorsLayer::permissive()).with_state(state);
+    let app = Router::new()
+        .route("/", get(index))
+        .route("/api/synthesize", get(synthesize_wav_get).post(synthesize_wav))
+        .route("/api/synthesize_stream", get(synthesize_stream_get).post(synthesize_stream))
+        .route("/api/synthesize_raw", get(synthesize_raw_get).post(synthesize_raw))
+        .layer(CorsLayer::permissive())
+        .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&cli.listen)
         .await

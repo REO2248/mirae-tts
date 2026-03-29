@@ -52,7 +52,7 @@ async function synthesize() {
   btn.disabled = true;
   try {
     const request_body = JSON.stringify({ text: t });
-    const response = await fetch("/synthesize/wav", {
+    const response = await fetch("api/synthesize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: request_body,
