@@ -45,11 +45,11 @@ pub fn render_to_pcm(
                 output.extend_from_slice(&samples);
 
                 // liaison pitch 0 = invalid slot in VoiceInfo
-                if let Some(ref liaison) = unit.liaison_entry {
-                    if liaison.pitch() != 0 {
-                        let liaison_samples = reader.read_samples(liaison)?;
-                        output.extend_from_slice(&liaison_samples);
-                    }
+                if let Some(ref liaison) = unit.liaison_entry
+                    && liaison.pitch() != 0
+                {
+                    let liaison_samples = reader.read_samples(liaison)?;
+                    output.extend_from_slice(&liaison_samples);
                 }
 
                 if unit.pause_samples > 0 {

@@ -1,6 +1,6 @@
 //! KPS bytes → segments. `break_after` uses engine codes 7=clause / 8=sentence (see `punct_boundary` 7 vs 9).
 
-use crate::kps_class::{classify_next_char, KpsCharClass};
+use crate::kps_class::{KpsCharClass, classify_next_char};
 
 static LIST_9: &[&[u8]] = &[
     b".",        // ASCII period
@@ -210,36 +210,36 @@ pub fn segment<'a>(input: &'a [u8]) -> Vec<Segment<'a>> {
         let kind = class_to_kind(cls);
         let cur_code = class_code(cls);
 
-        if let Some(existing_kind) = cur_kind {
-            if existing_kind != kind {
-                let pb_ahead = punct_boundary(char_bytes);
-                if pb_ahead != 0 {
-                    let next_code_look = if i + char_len < len {
-                        let (nc, _) = classify_next(&input[i + char_len..]);
-                        class_code(nc)
-                    } else {
-                        0
-                    };
-                    if let Some(bt) = punct_break_type(prev_class, next_code_look, pb_ahead) {
-                        seg_end = i;
-                        flush!(bt, false);
-                        cur_kind = None;
-                        prev_class = 0;
-                        i += char_len;
-                        seg_start = i;
-                        seg_end = i;
-                        continue;
-                    } else {
-                        seg_end = i + char_len;
-                        prev_class = cur_code;
-                        i += char_len;
-                        continue;
-                    }
+        if let Some(existing_kind) = cur_kind
+            && existing_kind != kind
+        {
+            let pb_ahead = punct_boundary(char_bytes);
+            if pb_ahead != 0 {
+                let next_code_look = if i + char_len < len {
+                    let (nc, _) = classify_next(&input[i + char_len..]);
+                    class_code(nc)
+                } else {
+                    0
+                };
+                if let Some(bt) = punct_break_type(prev_class, next_code_look, pb_ahead) {
+                    seg_end = i;
+                    flush!(bt, false);
+                    cur_kind = None;
+                    prev_class = 0;
+                    i += char_len;
+                    seg_start = i;
+                    seg_end = i;
+                    continue;
+                } else {
+                    seg_end = i + char_len;
+                    prev_class = cur_code;
+                    i += char_len;
+                    continue;
                 }
-                seg_end = i;
-                flush!(BreakType::None, false);
-                seg_start = i;
             }
+            seg_end = i;
+            flush!(BreakType::None, false);
+            seg_start = i;
         }
         seg_end = i + char_len;
         cur_kind = Some(kind);

@@ -399,11 +399,7 @@ fn score_next_context(
                 }
                 return 0x32;
             }
-            if cand_next_initial == 0x0C {
-                0x14
-            } else {
-                0
-            }
+            if cand_next_initial == 0x0C { 0x14 } else { 0 }
         }
         5 => {
             if (candidate_coda == 0x1B || candidate_coda == 0x12)
@@ -431,11 +427,7 @@ fn score_next_context(
                 }
                 return 0x32;
             }
-            if cand_next_initial == 0x12 {
-                0x14
-            } else {
-                0
-            }
+            if cand_next_initial == 0x12 { 0x14 } else { 0 }
         }
         _ => {
             if (candidate_coda == 0x1B || candidate_coda == 0x12)
@@ -1036,10 +1028,10 @@ pub fn smooth_pitch_pass(
         let mut smoothed = phonemes[i];
         smoothed.emphasis = false;
 
-        if let Some(new_unit) = select_unit(voice_info, &smoothed, avg_pitch) {
-            if let Some(ref mut old) = units[i] {
-                new_unit.clone_into(old);
-            }
+        if let Some(new_unit) = select_unit(voice_info, &smoothed, avg_pitch)
+            && let Some(ref mut old) = units[i]
+        {
+            new_unit.clone_into(old);
         }
     }
 }
@@ -1080,7 +1072,7 @@ mod tests {
         assert!(is_liaison(0, 7)); // initial=7 → liaison
         assert!(is_liaison(0, 15)); // initial=15 → liaison
         assert!(is_liaison(0, 19)); // initial=19 → liaison
-                                    // Special case: initial==3 AND coda==6 → no liaison
+        // Special case: initial==3 AND coda==6 → no liaison
         assert!(!is_liaison(6, 3));
         // But initial==3 with other codas → liaison
         assert!(is_liaison(5, 3));

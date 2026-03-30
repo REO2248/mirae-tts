@@ -1,0 +1,12 @@
+[package]
+name = "mirae-tts-cli"
+version = "0.1.0"
+edition = "2024"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+mirae-tts-engine = { path = "../mirae-tts-engine" }
+clap = { version = "4.6.0", features = ["derive"] }
+atty = "0.2"

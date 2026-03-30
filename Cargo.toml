@@ -1,44 +1,10 @@
-[package]
-name = "mirae-tts"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.94"
-default-run = "mirae-tts"
-description = "Mirae 2.0 TTS engine reimplementation in Rust"
-
-[lints.rust]
-unsafe_code = "forbid"
-
-[dependencies]
-kps9566 = { git = "https://github.com/REO2248/kps9566-rs", rev = "60a1d67a2dbe89a640d2ff0154255274d4bb5fbc" }
-hound = "3.5.1"
-byteorder = "1.5.0"
-clap = { version = "4.6.0", features = ["derive", "env"] }
-tokio = { version = "1.50.0", features = ["full"], optional = true }
-axum = { version = "0.8.8", optional = true }
-serde = { version = "1.0.228", features = ["derive"], optional = true }
-serde_json = { version = "1.0.149", optional = true }
-tower-http = { version = "0.6.8", features = ["cors"], optional = true }
-tokio-stream = { version = "0.1.18", optional = true }
-bytes = { version = "1.11.1", optional = true }
-tracing = { version = "0.1.44", optional = true }
-tracing-subscriber = { version = "0.3.23", features = ["fmt"], optional = true }
-
-[features]
-default = []
-web = [
-    "tokio",
-    "axum",
-    "serde",
-    "serde_json",
-    "tower-http",
-    "tokio-stream",
-    "bytes",
-    "tracing",
-    "tracing-subscriber",
+[workspace]
+resolver = "3"
+members = [
+    "mirae-tts-engine",
+    "mirae-tts-server",
+    "mirae-tts-cli",
 ]
 
-[[bin]]
-name = "tts_server"
-path = "src/bin/tts_server.rs"
-required-features = ["web"]
+[workspace.lints.rust]
+unsafe_code = "forbid"

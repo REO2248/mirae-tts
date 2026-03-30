@@ -6,10 +6,7 @@ services:
     image: mirae-tts-server:latest
     ports:
       - "3000:3000"
-    volumes:
-      - ./Voice:/data/Voice:ro
     restart: always
     environment:
       LISTEN: "0.0.0.0:3000"
-      DIC: "/data/Voice"
       MAXIMUM_LENGTH: "0"

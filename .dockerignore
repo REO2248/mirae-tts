@@ -2,4 +2,3 @@ target
 .git
 **/target
 *.rs.bk
-Voice

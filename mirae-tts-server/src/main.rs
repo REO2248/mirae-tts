@@ -20,7 +20,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
-use mirae_tts::{encode_wav_vec, pcm_i16le_to_bytes, TtsConfig, TtsEngine};
+use mirae_tts_engine::{encode_wav_vec, pcm_i16le_to_bytes, TtsConfig, TtsEngine};
 
 #[derive(Parser)]
 #[command(name = "tts_server")]
@@ -237,7 +237,7 @@ async fn synthesize_stream_impl(state: Arc<AppState>, text: String) -> Response 
 }
 
 async fn index(State(_): State<Arc<AppState>>) -> Html<&'static str> {
-    Html(include_str!("../../assets/index.html"))
+    Html(include_str!("../assets/index.html"))
 }
 
 #[tokio::main]

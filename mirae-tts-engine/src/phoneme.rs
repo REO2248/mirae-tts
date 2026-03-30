@@ -1,7 +1,7 @@
 //! Phoneme stream for VoiceInfo. Legacy prosody = row*10+col; `NO_CONTEXT` = 0xFFFF.
 
 use crate::g2p;
-use crate::korean::{decompose_text, pack_syllable, DecomposedChar, PauseType};
+use crate::korean::{DecomposedChar, PauseType, decompose_text, pack_syllable};
 use crate::number::apply_number_conversion;
 use crate::segmenter::BreakType;
 
@@ -147,12 +147,10 @@ pub fn text_to_phonemes_with_context(
                 });
             }
             DecomposedChar::Space => {
-                if !out_units.is_empty() {
-                    if let Some(last) = out_units.last_mut() {
-                        if last.break_level < 1 {
-                            last.break_level = 1;
-                        }
-                    }
+                if let Some(last) = out_units.last_mut()
+                    && last.break_level < 1
+                {
+                    last.break_level = 1;
                 }
             }
             DecomposedChar::Other(_) => {}
@@ -178,11 +176,7 @@ fn compute_col(
             | DecomposedChar::Pause(PauseType::Exclamation) => 4,
         };
     }
-    if more_segments_follow {
-        0
-    } else {
-        4
-    }
+    if more_segments_follow { 0 } else { 4 }
 }
 
 /// seg_type / flags: Mirae segment encoding (1=Korean, 10=number, …).

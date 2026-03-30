@@ -2,10 +2,11 @@
 
 use std::fs::File;
 use std::io::{self, Read, Write};
+use atty;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
-use mirae_tts::{encode_wav_vec, pcm_i16le_to_bytes, TtsConfig, TtsEngine};
+use mirae_tts_engine::{encode_wav_vec, pcm_i16le_to_bytes, TtsConfig, TtsEngine};
 
 #[derive(Parser)]
 #[command(
@@ -51,6 +52,14 @@ fn main() -> io::Result<()> {
     let input = match &cli.text {
         Some(t) => t.clone(),
         None => {
+            // If stdin is a TTY, don't block waiting for input — require -t/--text or a pipe.
+            if atty::is(atty::Stream::Stdin) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "no text provided; use -t / --text when running interactively or pipe text to stdin",
+                ));
+            }
+
             let mut s = String::new();
             io::stdin().read_to_string(&mut s)?;
             s
@@ -142,11 +151,9 @@ fn synthesize_pcm_stream<W: Write>(
             Err(_) => return false,
         }
         wrote = true;
-        if let Err(e) = w.flush() {
-            if reader_may_hang_up && e.kind() == io::ErrorKind::BrokenPipe {
-                reader_disconnected = true;
-                return false;
-            }
+        if let Err(e) = w.flush() && reader_may_hang_up && e.kind() == io::ErrorKind::BrokenPipe {
+            reader_disconnected = true;
+            return false;
         }
         true
     })?;
