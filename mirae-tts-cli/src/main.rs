@@ -2,7 +2,6 @@
 
 use std::fs::File;
 use std::io::{self, Read, Write};
-use atty;
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
