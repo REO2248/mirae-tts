@@ -3,6 +3,7 @@ name = "mirae-tts-engine"
 version = "0.1.0"
 edition = "2024"
 description = "Mirae 2.0 TTS engine reimplementation in Rust"
+license = "MIT"
 
 [lints.rust]
 unsafe_code = "forbid"
