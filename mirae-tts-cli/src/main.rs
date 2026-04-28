@@ -46,6 +46,8 @@ enum OutputFormat {
 }
 
 fn main() -> io::Result<()> {
+    tracing_subscriber::fmt().init();
+
     let cli = Cli::parse();
 
     let input = match &cli.text {

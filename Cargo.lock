@@ -406,6 +406,8 @@ dependencies = [
  "atty",
  "clap",
  "mirae-tts-engine",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -414,6 +416,7 @@ version = "0.1.0"
 dependencies = [
  "hound",
  "kps9566",
+ "tracing",
 ]
 
 [[package]]

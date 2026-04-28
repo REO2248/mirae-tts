@@ -13,12 +13,13 @@ use crate::speech::SpeechDict;
 use crate::unit_select::{select_units_for_sequence, smooth_pitch_pass};
 use crate::voice_info::{VoiceDataReader, VoiceInfo};
 use crate::wave_render;
+use tracing::{debug, warn};
 
 #[derive(Debug, Clone)]
 pub struct TtsConfig {
     pub sample_rate: u32,
     pub sentence_pause: i16,
-    /// Progress and warnings to stderr (`eprintln!`). Default `false` for library embeds; enable for CLI-style feedback.
+    /// Progress and warnings via `tracing`. Default `false` for library embeds; enable for CLI-style feedback.
     pub log_progress: bool,
 }
 
@@ -68,7 +69,7 @@ impl TtsEngine {
         let voice_data = VoiceDataReader::open(&voice_data_path)?;
 
         if log {
-            eprintln!(
+            debug!(
                 "[TtsEngine] Initialized with {} voice entries",
                 voice_info.entries.len()
             );
@@ -80,13 +81,13 @@ impl TtsEngine {
                 match SpeechDict::load(&p) {
                     Ok(d) => {
                         if log {
-                            eprintln!("[TtsEngine] Loaded Speech.pkg ({} entries)", d.len());
+                            debug!("[TtsEngine] Loaded Speech.pkg ({} entries)", d.len());
                         }
                         Some(d)
                     }
                     Err(e) => {
                         if log {
-                            eprintln!("[TtsEngine] Warning: could not load Speech.pkg: {e}");
+                            warn!("[TtsEngine] Warning: could not load Speech.pkg: {e}");
                         }
                         None
                     }
@@ -102,7 +103,7 @@ impl TtsEngine {
                 match Colligation::load(&p) {
                     Ok(c) => {
                         if log {
-                            eprintln!(
+                            debug!(
                                 "[TtsEngine] Loaded COLLIGATION.PKG ({} nodes, {} rules)",
                                 c.node_count(),
                                 c.record_count()
@@ -112,7 +113,7 @@ impl TtsEngine {
                     }
                     Err(e) => {
                         if log {
-                            eprintln!("[TtsEngine] Warning: could not load COLLIGATION.PKG: {e}");
+                            warn!("[TtsEngine] Warning: could not load COLLIGATION.PKG: {e}");
                         }
                         None
                     }
@@ -138,13 +139,13 @@ impl TtsEngine {
 
         if phonemes.is_empty() {
             if self.config.log_progress {
-                eprintln!("[TtsEngine] No phonemes generated for input text");
+                    debug!("[TtsEngine] No phonemes generated for input text");
             }
             return Ok(Vec::new());
         }
 
         if self.config.log_progress {
-            eprintln!("[TtsEngine] Generated {} phoneme units", phonemes.len());
+                debug!("[TtsEngine] Generated {} phoneme units", phonemes.len());
         }
 
         // Type-1 template hypos before vowel split / CV fallback.
@@ -165,7 +166,7 @@ impl TtsEngine {
 
         let matched_count = selected.iter().filter(|s| s.is_some()).count();
         if self.config.log_progress {
-            eprintln!(
+                debug!(
                 "[TtsEngine] Selected {}/{} voice units",
                 matched_count,
                 phonemes.len()
@@ -174,7 +175,7 @@ impl TtsEngine {
 
         if matched_count == 0 {
             if self.config.log_progress {
-                eprintln!(
+                warn!(
                     "[TtsEngine] Warning: No voice units matched. Check VoiceInfo.pkg format."
                 );
             }
@@ -189,7 +190,7 @@ impl TtsEngine {
         )?;
 
         if self.config.log_progress {
-            eprintln!("[TtsEngine] Rendered {} PCM samples", pcm.len());
+                debug!("[TtsEngine] Rendered {} PCM samples", pcm.len());
         }
 
         Ok(pcm)
