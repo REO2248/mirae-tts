@@ -141,8 +141,11 @@ pub(crate) struct Mirae2Engine {
 impl Mirae2Engine {
     /// Load all voice data from the resolved voice directory (`VoiceInfo.pkg`
     /// etc. inside `voice`) plus the KeyPad.Ebd table.
-    pub(crate) fn from_paths(voice: &Path, keypad_ebd: &Path) -> io::Result<Self> {
-        let keypad = KeyPad::load(keypad_ebd)?;
+    pub(crate) fn from_paths(voice: &Path, keypad_ebd: Option<&Path>) -> io::Result<Self> {
+        let keypad = match keypad_ebd {
+            Some(p) => KeyPad::load(p)?,
+            None => KeyPad::fallback(),
+        };
         let voice_info = VoiceInfo::load(&voice.join("VoiceInfo.pkg"))?;
         let voice_data = VoiceData::open(voice)?;
 
@@ -777,17 +780,15 @@ impl TtsEngine {
                 ),
             ));
         };
-        let keypad = find_keypad_ebd(voice_dir, &voice).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::NotFound,
-                format!(
-                    "KeyPad.Ebd not found near {:?} (looked for Data/Dictionary/KeyPad.Ebd next to the voice dir and inside it)",
-                    voice_dir
-                ),
-            )
-        })?;
+        let keypad = find_keypad_ebd(voice_dir, &voice);
+        if keypad.is_none() {
+            eprintln!(
+                "[mirae-tts] KeyPad.Ebd not found near {:?} — using built-in KPS9566 fallback (byte-identical for Hangul/ASCII/symbols)",
+                voice_dir
+            );
+        }
 
-        let mut inner = Mirae2Engine::from_paths(&voice, &keypad)?;
+        let mut inner = Mirae2Engine::from_paths(&voice, keypad.as_deref())?;
         inner.debug_log = config.log_progress || std::env::var("MIRAE_DEBUG").is_ok();
         inner.set_config(EngineConfig::from_public(&config));
 

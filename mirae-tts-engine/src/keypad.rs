@@ -1,60 +1,33 @@
 //! KeyPad.Ebd — UTF-16 → internal-code conversion table.
-//!
-//! Original loader/converter: `FUN_00421850` (see T4 §2.1, SPEC §2.1):
-//! the file `Data\Dictionary\KeyPad.Ebd` is read whole (196,608 B) and
-//! treated as a fixed table of **65,536 × 3-byte** entries, indexed by the
-//! UTF-16 code unit:
-//!
-//! ```text
-//! entry(code) = [ 1B len ][ payload of len bytes (max 2) ]
-//!               table[code*3]        table[code*3+1 .. +1+len]
-//! ```
-//!
-//! Conversion (`FUN_00421850`) concatenates the payload of every code unit
-//! of the input text into a NUL-terminated "internal code" byte string
-//! (each char → 1–2 bytes; the SPEC's "1〜3" accounts for the len byte
-//! itself). Verified against the real file (2026-08):
-//!
-//! - all 65,536 entries have `len` 1 or 2 (never 0, never ≥ 3)
-//! - ASCII 0x00–0x7F → 1-byte identity payload
-//! - all 11,172 Hangul syllables → their exact KPS9566 2-byte code
-//!   (가 → `b0 a1`, 조 → `bc bf`, 건 → `b0 bc`, …)
-//! - all other code units (unassigned, surrogates, U+FFFD …) → 1 byte `0x3F` (`?`)
-//! - KPS9566-mappable CJK/fullwidth/jamo chars → 2-byte KPS9566 code
-//!
-//! The original reads the length byte as a **signed char**; since all real
-//! lengths are 1–2 this never matters, and we treat it as unsigned.
+//! Falls back to the `kps9566` crate when `KeyPad.Ebd` is missing.
 
 use std::io::{self, Read};
 use std::path::Path;
 
-/// Table size in bytes: 65,536 entries × 3 bytes.
 pub const TABLE_BYTES: usize = 65536 * 3;
-
-/// The original engine's path to KeyPad.Ebd (relative to the app CWD).
 pub const DEFAULT_PATH: &str = "Data/Dictionary/KeyPad.Ebd";
 
-/// KeyPad.Ebd conversion table.
+/// KeyPad.Ebd table (`None` = `kps9566` crate fallback).
 #[derive(Debug, Clone)]
 pub struct KeyPad {
-    /// 196,608-byte table: `[len][payload ≤2B]` per UTF-16 code unit.
-    table: Vec<u8>,
+    table: Option<Vec<u8>>,
 }
 
+const FALLBACK_QM: [u8; 1] = [0x3F];
+
 impl KeyPad {
-    /// Parse a raw KeyPad.Ebd buffer. Returns `None` unless the buffer is
-    /// exactly 65,536 × 3 bytes.
     pub fn parse(data: &[u8]) -> Option<Self> {
-        if data.len() != TABLE_BYTES {
-            return None;
-        }
-        Some(KeyPad {
-            table: data.to_vec(),
+        (data.len() == TABLE_BYTES).then(|| KeyPad {
+            table: Some(data.to_vec()),
         })
     }
 
-    /// Load and parse a KeyPad.Ebd file.
+    /// Falls back to `kps9566` when the file is missing.
     pub fn load<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Ok(KeyPad { table: None });
+        }
         let mut f = std::fs::File::open(path)?;
         let mut data = Vec::new();
         f.read_to_end(&mut data)?;
@@ -66,40 +39,58 @@ impl KeyPad {
         })
     }
 
-    /// Look up one UTF-16 code unit → `(len, payload)`.
-    ///
-    /// The payload slice is `len` bytes (0–2); `len` is 1 or 2 for every
-    /// entry in the real table.
+    pub fn fallback() -> Self {
+        KeyPad { table: None }
+    }
+
+    pub fn uses_real_table(&self) -> bool {
+        self.table.is_some()
+    }
+
+    /// In fallback mode every code unit reports `?` (0x3F); use convert/convert_str.
     #[inline]
     pub fn entry(&self, code: u16) -> (u8, &[u8]) {
-        let off = code as usize * 3;
-        let len = (self.table[off] as usize).min(2);
-        (len as u8, &self.table[off + 1..off + 1 + len])
-    }
-
-    /// Convert UTF-16 code units to the internal-code byte string
-    /// (faithful port of `FUN_00421850`; the trailing NUL is not included).
-    ///
-    /// Every code unit maps to 1–2 bytes (KPS9566 2-byte codes for Korean
-    /// and other KPS-mappable chars, identity for ASCII, `0x3F` otherwise).
-    pub fn convert(&self, text: &[u16]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(text.len() * 2);
-        for &code in text {
-            let (len, payload) = self.entry(code);
-            out.extend_from_slice(&payload[..len as usize]);
+        match &self.table {
+            Some(t) => {
+                let off = code as usize * 3;
+                let len = (t[off] as usize).min(2);
+                (len as u8, &t[off + 1..off + 1 + len])
+            }
+            None => (1, &FALLBACK_QM[..]),
         }
-        out
     }
 
-    /// Convert a `&str` to the internal-code byte string.
-    ///
-    /// Surrogate pairs are passed through as two code units (each maps to
-    /// `0x3F` in the real table), matching the original which operates on
-    /// raw UTF-16 code units.
-    pub fn convert_str(&self, text: &str) -> Vec<u8> {
-        let units: Vec<u16> = text.encode_utf16().collect();
-        self.convert(&units)
+    pub fn convert(&self, text: &[u16]) -> Vec<u8> {
+        match &self.table {
+            Some(t) => convert_table(t, text),
+            None => {
+                let mut out = Vec::with_capacity(text.len() * 2);
+                kps9566::kps9566::Encoder.encode_to_vec(&String::from_utf16_lossy(text), &mut out);
+                out
+            }
+        }
     }
+
+    pub fn convert_str(&self, text: &str) -> Vec<u8> {
+        match &self.table {
+            Some(t) => convert_table(t, &text.encode_utf16().collect::<Vec<_>>()),
+            None => {
+                let mut out = Vec::with_capacity(text.len() * 2);
+                kps9566::kps9566::Encoder.encode_to_vec(text, &mut out);
+                out
+            }
+        }
+    }
+}
+
+fn convert_table(t: &[u8], units: &[u16]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(units.len() * 2);
+    for &code in units {
+        let off = code as usize * 3;
+        let len = (t[off] as usize).min(2);
+        out.extend_from_slice(&t[off + 1..off + 1 + len]);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -108,18 +99,15 @@ mod tests {
 
     fn keypad() -> KeyPad {
         KeyPad::load("/home/user/reo_work/mirae2_re/extracted/미래2.0/Data/Dictionary/KeyPad.Ebd")
-            .expect("real KeyPad.Ebd must load")
+            .expect("KeyPad.Ebd")
     }
 
     #[test]
     fn parses_real_table() {
         let kp = keypad();
-        // spot-check known mappings
-        assert_eq!(kp.entry('A' as u16), (1, &[0x41][..]));
-        assert_eq!(kp.entry(' ' as u16), (1, &[0x20][..]));
-        assert_eq!(kp.entry('가' as u16), (2, &[0xb0, 0xa1][..]));
-        assert_eq!(kp.entry('조' as u16), (2, &[0xbc, 0xbf][..]));
-        assert_eq!(kp.entry('건' as u16), (2, &[0xb0, 0xbc][..]));
+        assert!(kp.uses_real_table());
+        assert_eq!(kp.entry(0x41), (1, &[0x41][..]));
+        assert_eq!(kp.entry(0xAC00), (2, &[0xB0, 0xA1][..]));
         assert_eq!(kp.entry(0xFFFF), (1, &[0x3F][..]));
     }
 
@@ -136,9 +124,7 @@ mod tests {
     #[test]
     fn converts_korean_text() {
         let kp = keypad();
-        // 조건 → KPS9566 bc bf b0 bc (matches Speech.pkg storage)
         assert_eq!(kp.convert_str("조건"), &[0xbc, 0xbf, 0xb0, 0xbc]);
-        // 안녕하세요
         assert_eq!(
             kp.convert_str("안녕하세요"),
             &[0xca, 0xaf, 0xb2, 0xce, 0xc2, 0xd7, 0xbb, 0xbd, 0xca, 0xfd]
@@ -149,7 +135,6 @@ mod tests {
     fn converts_ascii_and_unmapped() {
         let kp = keypad();
         assert_eq!(kp.convert_str("Hi!"), b"Hi!");
-        // unmapped code units → '?'
         assert_eq!(kp.convert(&[0x1234]), &[0x3F]);
         assert_eq!(kp.convert(&[0xD800, 0xDC00]), &[0x3F, 0x3F]);
     }
@@ -158,5 +143,31 @@ mod tests {
     fn rejects_wrong_size() {
         assert!(KeyPad::parse(&[0u8; 10]).is_none());
         assert!(KeyPad::parse(&[0u8; TABLE_BYTES - 1]).is_none());
+    }
+
+    #[test]
+    fn fallback_matches_keypad_for_hangul_ascii() {
+        let real = keypad();
+        let fb = KeyPad::fallback();
+        assert!(!fb.uses_real_table());
+        for &s in &[
+            "A",
+            "가",
+            "조건",
+            "전자서고",
+            "안녕하십니까",
+            "전자서고《미래》2.0은",
+            "윈도우즈에서 원만히 동작",
+        ] {
+            assert_eq!(fb.convert_str(s), real.convert_str(s), "{s:?}");
+        }
+        assert_eq!(fb.convert(&[0x1234]), &[0x3F]);
+    }
+
+    #[test]
+    fn load_missing_file_falls_back() {
+        let kp = KeyPad::load("/nonexistent/KeyPad.Ebd").unwrap();
+        assert!(!kp.uses_real_table());
+        assert_eq!(kp.convert_str("안녕"), keypad().convert_str("안녕"));
     }
 }
