@@ -1,5 +1,5 @@
 //! Text-to-speech library: [`TtsEngine`], [`TtsConfig`], [`encode_wav_vec`] / [`pcm_i16le_to_bytes`].
-//! Byte-exact Rust port of the original Future.exe TTS engine: text -> keypad -> segmenter ->
+//! Rust port of the original Future.exe TTS pipeline: text -> keypad -> segmenter ->
 //! g2p -> tone -> record -> unit_select -> render -> PCM (22050 Hz / s16le / mono).
 pub mod connect;
 pub mod dict;
@@ -31,7 +31,7 @@ use unit_select::{ProcessedUnits, UnitSelectConfig, UnitSelector};
 use voice_data::VoiceData;
 use voice_info::VoiceInfo;
 
-// Internal engine (byte-exact port, renamed to avoid clashing with the public API).
+// Internal engine implementation.
 
 /// Voice data directory (default: relative to CWD, like the original app).
 pub const DEFAULT_VOICE_DIR: &str = "Voice";
