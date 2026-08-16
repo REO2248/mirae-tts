@@ -17,7 +17,7 @@ The workspace provides a CLI package named `mirae-tts-cli`. The CLI reads Korean
 cargo run -p mirae-tts-cli --release -- [OPTIONS]
 ```
 
-`VOICE_DIR` is the path to the voice resources the engine loads. Text is taken from **stdin** (full read, then trimmed) unless `-t` / `--text` is given. Empty text after trim is an error.
+`VOICE_DIR` is the path to the voice resources the engine loads: the directory containing `VoiceInfo.pkg` / `VoiceData.pkg` (the `Voice/` directory), or an install root with a `Voice/` subdirectory. `KeyPad.Ebd` (the UTF-16 → internal-code table) is located automatically at `Data/Dictionary/KeyPad.Ebd` next to the voice directory (original app layout) or inside it. Text is taken from **stdin** (full read, then trimmed) unless `-t` / `--text` is given. Empty text after trim is an error.
 
 
 | Option                     | Description                                         |
