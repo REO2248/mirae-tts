@@ -1,423 +1,624 @@
-//! KPS bytes → segments. `break_after` uses engine codes 7=clause / 8=sentence (see `punct_boundary` 7 vs 9).
+//! トークン化・文分割 — tokenizer / sentence splitter (FUN_00402240).
+//!
+//! Scans the internal-code byte string produced by [`crate::keypad::KeyPad`]
+//! (NUL-terminated in the original) and emits sentences:
+//!
+//! - ASCII bytes (`< 0x80`) → 1-byte tokens; `!` `.` `?` are sentence
+//!   boundary candidates
+//! - 2-byte characters (`0xA1..=0xFE` lead, `0xA1..=0xFE` trail): KPS9566
+//!   punctuation `．`(0xA1A5) `？`(0xA1A9) `！`(0xA1AA) are sentence boundary
+//!   candidates, everything else is a syllable token
+//! - malformed/other bytes (0x80..0xA0, 0xFF) are silently dropped
+//! - a sentence is flushed (with the delimiter appended) when a boundary
+//!   punctuation is followed by a non-continuation byte, or when the current
+//!   sentence exceeds the buffer limits (SPEC §2.2: 496 chars forced break;
+//!   hard buffer limit 49,996 bytes like the original 50,000B buffer)
+//! - `crlf_breaks` mode (original `DAT_00489140 ≠ 0`, never set in the
+//!   binary): `\r`/`\n` force a sentence break and the following run of
+//!   whitespace / KPS space (0xA1A1) is skipped
+//!
+//! Special "." handling (abbreviation / decimal heuristics, from the
+//! disassembly): a boundary '.' stays inline when the previous char class is
+//! 0x19 (syllable) and the next token class is 1, or previous class 4
+//! (digits) and next class 4 (decimal point), or previous class 7 and next
+//! class 7.
+//!
+//! Character classes are the original `FUN_0040b240` ranges over KPS9566
+//! codes; ASCII bytes are mapped to their KPS9566 equivalent via the
+//! `DAT_0048a308` table (dumped from the binary).
 
-use crate::kps_class::{KpsCharClass, classify_next_char};
+/// One tokenized sentence (internal-code bytes) plus its byte offset in the
+/// input text (recorded when the sentence's first char was appended, like
+/// the original's sentence-start array, FUN_00401530).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Sentence {
+    /// Internal-code bytes of the sentence (delimiters included).
+    pub text: Vec<u8>,
+    /// Byte offset of the sentence start in the tokenizer input.
+    pub start: usize,
+}
 
-static LIST_9: &[&[u8]] = &[
-    b".",        // ASCII period
-    b"\xa1\xa5", // KPS fullwidth period
-    b"!",        // ASCII exclamation
-    b"\xa1\xaa", // KPS fullwidth exclamation
+/// Tokenizer buffer size of the original (FUN_00402240, `operator_new(50000)`).
+pub const TOKEN_BUFFER_SIZE: usize = 50000;
+
+/// Hard flush limit for the current sentence: the original flushes when the
+/// buffer position exceeds 0xC34C (49996) — `0xC34C < pos` — leaving room
+/// for the 2-byte lookahead.
+pub const HARD_FLUSH_LIMIT: usize = 0xC34C;
+
+/// Forced sentence break when the current sentence exceeds this many bytes
+/// (SPEC §2.2: 文バッファ 496 文字 (0x1f0) 超で強制改文; the original applies
+/// the equivalent limit in the 分節化 stage, FUN_004428b0/FUN_00442300).
+pub const MAX_SENTENCE_BYTES: usize = 0x1F0;
+
+/// KPS9566 full-width space (segmenter treats it as whitespace).
+pub const KPS_SPACE: u16 = 0xA1A1;
+/// KPS9566 full-width period `．` — sentence boundary punctuation.
+pub const KPS_FULL_STOP: u16 = 0xA1A5;
+/// KPS9566 full-width question mark `？`.
+pub const KPS_QUESTION: u16 = 0xA1A9;
+/// KPS9566 full-width exclamation mark `！`.
+pub const KPS_EXCLAMATION: u16 = 0xA1AA;
+
+/// `DAT_0048a308` — per-ASCII-byte mapping to the KPS9566 equivalent code
+/// (dumped from Future.exe). Used by [`char_class`] and [`next_token_class`].
+pub const ASCII_TO_KPS: [u16; 256] = [
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0009, 0x0000, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xA1A1, 0xA1AA, 0xA1D4, 0xA2D7,
+    0xA8A8, 0xA8AC, 0xA2D8, 0xA1BB, 0xA1CA, 0xA1CB, 0xA2D9, 0xA2A1, 0xA1A4, 0xA1AF, 0xA1A5, 0xA1B3,
+    0xA3B0, 0xA3B1, 0xA3B2, 0xA3B3, 0xA3B4, 0xA3B5, 0xA3B6, 0xA3B7, 0xA3B8, 0xA3B9, 0xA1A7, 0xA1A8,
+    0xA2A8, 0xA2A6, 0xA2A9, 0xA1A9, 0xA2DA, 0xA3C1, 0xA3C2, 0xA3C3, 0xA3C4, 0xA3C5, 0xA3C6, 0xA3C7,
+    0xA3C8, 0xA3C9, 0xA3CA, 0xA3CB, 0xA3CC, 0xA3CD, 0xA3CE, 0xA3CF, 0xA3D0, 0xA3D1, 0xA3D2, 0xA3D3,
+    0xA3D4, 0xA3D5, 0xA3D6, 0xA3D7, 0xA3D8, 0xA3D9, 0xA3DA, 0xA1CE, 0xA1B4, 0xA1CF, 0xA1BE, 0xA1B1,
+    0xA1BC, 0xA3E1, 0xA3E2, 0xA3E3, 0xA3E4, 0xA3E5, 0xA3E6, 0xA3E7, 0xA3E8, 0xA3E9, 0xA3EA, 0xA3EB,
+    0xA3EC, 0xA3ED, 0xA3EE, 0xA3EF, 0xA3F0, 0xA3F1, 0xA3F2, 0xA3F3, 0xA3F4, 0xA3F5, 0xA3F6, 0xA3F7,
+    0xA3F8, 0xA3F9, 0xA3FA, 0xA1D0, 0xA1D0, 0xA1B5, 0xA1D1, 0x0000, 0x0200, 0x0202, 0x0403, 0x0704,
+    0x0001, 0x0000, 0x0000, 0x0500, 0x0505, 0x0000, 0x0006, 0x0000, 0x0100, 0x0000, 0x7520, 0x0047,
+    0x751C, 0x0047, 0x7518, 0x0047, 0x7514, 0x0047, 0x68C7, 0x0047, 0x7510, 0x0047, 0x750C, 0x0047,
+    0x7508, 0x0047, 0x7504, 0x0047, 0x68C7, 0x0047, 0x7500, 0x0047, 0x74FC, 0x0047, 0x74F8, 0x0047,
+    0x74F4, 0x0047, 0x74F0, 0x0047, 0x74EC, 0x0047, 0x74E8, 0x0047, 0x74E4, 0x0047, 0x74E0, 0x0047,
+    0x74DC, 0x0047, 0x68C7, 0x0047, 0x74D8, 0x0047, 0x74D4, 0x0047, 0x74D0, 0x0047, 0x74CC, 0x0047,
+    0x68C7, 0x0047, 0x0000, 0x0000, 0x6718, 0x0047, 0x74C8, 0x0047, 0x74C4, 0x0047, 0x74C0, 0x0047,
+    0x74BC, 0x0047, 0x74B8, 0x0047, 0x74B4, 0x0047, 0x66D4, 0x0047, 0x74B0, 0x0047, 0x74AC, 0x0047,
+    0x6704, 0x0047, 0x74A8, 0x0047, 0x74A4, 0x0047, 0x74A0, 0x0047, 0x749C, 0x0047, 0x7498, 0x0047,
+    0x7494, 0x0047, 0x7490, 0x0047, 0x748C, 0x0047, 0x7488, 0x0047, 0x7484, 0x0047, 0x7480, 0x0047,
+    0x747C, 0x0047, 0x7478, 0x0047, 0x7474, 0x0047, 0x7470, 0x0047, 0x746C, 0x0047, 0x7468, 0x0047,
+    0x7464, 0x0047, 0x7460, 0x0047,
 ];
 
-static LIST_7: &[&[u8]] = &[
-    b",",        // ASCII comma
-    b"\xa1\xa4", // KPS fullwidth comma
-    b":",        // ASCII colon
-    b"\xa1\xa7", // KPS fullwidth colon
-];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum BreakType {
-    None = 0,
-    Clause = 7,
-    Sentence = 8,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SegKind {
-    Korean,
-    Number,
-    Latin,
-    Symbol,
-}
-
-#[derive(Debug, Clone)]
-pub struct Segment<'a> {
-    pub bytes: &'a [u8],
-    pub kind: SegKind,
-    pub break_after: BreakType,
-    /// Feeds `trailing_word_gap` in phoneme pass (space vs `\n` flush).
-    pub after_whitespace: bool,
-}
-
-/// Returns 9 = sentence punct, 7 = clause punct, 0 = none (KPS or ASCII bytes).
-fn punct_boundary(norm_bytes: &[u8]) -> u8 {
-    let nb: &[u8] = {
-        let end = norm_bytes
-            .iter()
-            .rposition(|&b| b != 0)
-            .map(|i| i + 1)
-            .unwrap_or(0);
-        &norm_bytes[..end]
-    };
-    if nb.is_empty() {
-        return 0;
+/// Character class of a 16-bit code (KPS9566 code or ASCII-mapped code) —
+/// faithful port of `FUN_0040b240`.
+///
+/// Class meanings (KPS9566 blocks): 1 punctuation, 2–3 brackets, 4 digits,
+/// 5 A–Z, 6 a–z, 7–14 jamo/old-Hangul blocks, 15–19 radical blocks,
+/// 20–24 Hanja blocks, 0x19 Hangul syllables, 0x1A extended block, 0 none.
+#[inline]
+pub fn char_class_16(ch: u16) -> u8 {
+    if (0xA1A0 < ch) && (ch < 0xA1F4) {
+        return 1;
     }
-
-    for entry in LIST_9 {
-        if *entry == nb {
-            return 9;
+    if (0xA2A0 < ch) && (ch < 0xA2DD) {
+        return 2;
+    }
+    if (0xA2DC < ch) && (ch < 0xA2FF) {
+        return 3;
+    }
+    if (0xA3AF < ch) && (ch < 0xA3BA) {
+        return 4;
+    }
+    if (0xA3C0 < ch) && (ch < 0xA3DB) {
+        return 5;
+    }
+    if (0xA3E0 < ch) && (ch < 0xA3FB) {
+        return 6;
+    }
+    if (0xA4A0 < ch) && (ch < 0xA4D4) {
+        return 7;
+    }
+    if (0xA4E7 < ch) && (ch < 0xA4EE) {
+        return 8;
+    }
+    if (0xA5A0 < ch) && (ch < 0xA5C2) {
+        return 9;
+    }
+    if (0xA5D0 < ch) && (ch < 0xA5F2) {
+        return 10;
+    }
+    if (0xA6A0 < ch) && (ch < 0xA6B9) {
+        return 0xB;
+    }
+    if (0xA6C0 < ch) && (ch < 0xA6D9) {
+        return 0xC;
+    }
+    if (0xA6E0 < ch) && (ch < 0xA6EB) {
+        return 0xD;
+    }
+    if (0xA6F0 < ch) && (ch < 0xA6FB) {
+        return 0xE;
+    }
+    if (0xA7A0 < ch) && (ch < 0xA7BF) {
+        return 0xF;
+    }
+    if (0xA7C0 < ch) && (ch < 0xA7CF) {
+        return 0x10;
+    }
+    if (0xA7D0 < ch) && (ch < 0xA7DF) {
+        return 0x11;
+    }
+    if (0xA7DF < ch) && (ch < 0xA7EF) {
+        return 0x12;
+    }
+    if (0xA7EF < ch) && (ch < 0xA7FF) {
+        return 0x13;
+    }
+    if (0xA8A0 < ch) && (ch < 0xA8FF) {
+        return 0x14;
+    }
+    if (0xA9A0 < ch) && (ch < 0xA9E5) {
+        return 0x15;
+    }
+    if (0xAAA0 < ch) && (ch < 0xAAF4) {
+        return 0x16;
+    }
+    if (0xABA0 < ch) && (ch < 0xABF7) {
+        return 0x17;
+    }
+    if (0xACA0 < ch) && (ch < 0xACE1) {
+        return 0x18;
+    }
+    if (0xB0A0 < ch) && (ch < 0xCCD0) {
+        if is_syllable_code(ch) {
+            return 0x19;
         }
     }
-    for entry in LIST_7 {
-        if *entry == nb {
-            return 7;
-        }
+    if (0xCDA0 < ch) && (ch < 0xFED0) {
+        return 0x1A;
     }
     0
 }
 
-fn class_to_kind(cls: KpsCharClass) -> SegKind {
-    match cls {
-        KpsCharClass::KoreanSyllable => SegKind::Korean,
-        KpsCharClass::FullwidthDigit => SegKind::Number,
-        KpsCharClass::FullwidthLetter => SegKind::Latin,
-        _ => SegKind::Symbol,
+/// Class of a 1-byte token: map the byte through `DAT_0048a308` to its
+/// KPS9566 equivalent, then classify (faithful port of `FUN_0040b460`).
+#[inline]
+pub fn char_class(byte: u8) -> u8 {
+    char_class_16(ASCII_TO_KPS[byte as usize])
+}
+
+/// `FUN_00401190` — is this ASCII byte a sentence-boundary punctuation
+/// (`!` `.` `?`)?
+#[inline]
+pub fn is_sentence_punct_ascii(b: u8) -> bool {
+    b == b'!' || b == b'.' || b == b'?'
+}
+
+/// `FUN_004010e0` — does this ASCII byte continue the sentence after a
+/// boundary punctuation (tab, space, `(`, `<`)?
+#[inline]
+pub fn is_continue_ascii(b: u8) -> bool {
+    matches!(b, 0x09 | 0x20 | 0x28 | 0x3C)
+}
+
+/// `FUN_00401150` — does this KPS9566 char continue the sentence after a
+/// boundary punctuation (0xA1A1 space, 0xA1CA `（`, 0xA1D2 `〈`, 0xA1D4 `《`,
+/// 0xA2A8 `＜`, 0xA2B8 `≪`)?
+#[inline]
+pub fn is_continue_kps(ch: u16) -> bool {
+    match ch {
+        0xA1A1 | 0xA1CA | 0xA1D2 | 0xA1D4 | 0xA2A8 | 0xA2B8 => true,
+        _ => false,
     }
 }
 
-fn class_code(cls: KpsCharClass) -> u8 {
-    match cls {
-        KpsCharClass::KoreanSyllable => 1,
-        KpsCharClass::Symbol => 2,
-        KpsCharClass::FullwidthDigit => 3,
-        KpsCharClass::FullwidthLetter => 4,
-        KpsCharClass::MiscSymbol => 5,
-        KpsCharClass::ExtSymbol => 6,
-        KpsCharClass::KoreanJamo => 7,
-        KpsCharClass::Unknown => 0,
-    }
+/// `FUN_004011b0` — is this KPS9566 char a 2-byte sentence-boundary
+/// punctuation (`．` 0xA1A5, `？` 0xA1A9, `！` 0xA1AA)?
+#[inline]
+pub fn is_sentence_punct_kps(ch: u16) -> bool {
+    matches!(ch, 0xA1A5 | 0xA1A9 | 0xA1AA)
 }
 
-fn classify_next(input: &[u8]) -> (KpsCharClass, usize) {
-    if input.is_empty() {
-        return (KpsCharClass::Unknown, 0);
-    }
-    let b = input[0];
-    if b.is_ascii_alphabetic() {
-        (KpsCharClass::FullwidthLetter, 1)
-    } else if b.is_ascii_digit() {
-        (KpsCharClass::FullwidthDigit, 1)
+/// `FUN_0040af70` — valid Hangul syllable code (lead 0xB0–0xCC,
+/// trail 0xA0–0xFE)?
+#[inline]
+pub fn is_syllable_code(ch: u16) -> bool {
+    (0xA0 < (ch >> 8)) && ((ch >> 8) < 0xCD) && (0x9F < (ch & 0xFF)) && ((ch & 0xFF) < 0xFF)
+}
+
+/// `FUN_0040b480` — class and byte length of the token starting at `bytes`.
+/// Returns `(class, len)`; `len` is 1 (ASCII) or 2 (KPS9566 char), and
+/// `(0, 0)` when the byte is not a valid token start or has class 0.
+pub fn next_token_class(bytes: &[u8]) -> (u8, usize) {
+    let Some(&b0) = bytes.first() else {
+        return (0, 0);
+    };
+    let code = if b0 < 0x80 {
+        ASCII_TO_KPS[b0 as usize]
+    } else if b0 < 0xA1 {
+        return (0, 0);
     } else {
-        classify_next_char(input)
-    }
-}
-
-fn is_whitespace_at(input: &[u8], pos: usize) -> Option<usize> {
-    let b = *input.get(pos)?;
-    match b {
-        b'\t' | b' ' | b'\r' | b'\n' => Some(1),
-        0xa1 if input.get(pos + 1) == Some(&0xa2) => Some(2),
-        _ => None,
-    }
-}
-
-fn punct_break_type(prev_class: u8, next_code: u8, pb: u8) -> Option<BreakType> {
-    if pb == 9 {
-        // Sentence-final punctuation (. !)
-        if prev_class == 1 {
-            // Korean preceded → Sentence (8)
-            Some(BreakType::Sentence)
-        } else if (prev_class == 7 && next_code == 7) || (prev_class == 3 && next_code == 3) {
-            // Both Jamo (no sentence break), or decimal separator (digit.digit)
-            None
-        } else if next_code == 2 {
-            // Something + period + KPS Symbol → Sentence (8)
-            Some(BreakType::Sentence)
-        } else {
-            // Default: clause-level break
-            Some(BreakType::Clause)
-        }
+        let b1 = bytes.get(1).copied().unwrap_or(0);
+        ((b0 as u16) << 8) | b1 as u16
+    };
+    let class = char_class_16(code);
+    if class != 0 {
+        let len = if b0 < 0x80 { 1 } else { 2 };
+        (class, len)
     } else {
-        // pb == 7: clause punctuation (, : etc.)
-        // Only exception: digit + comma/colon + digit = thousands/time separator
-        if prev_class == 3 && next_code == 3 {
-            None
-        } else {
-            Some(BreakType::Clause)
-        }
+        (0, 0)
     }
 }
 
-/// Kind-change + punct uses `prev_class` before the change (Mirae-style); `3.14`-style absorbs `.`.
-pub fn segment<'a>(input: &'a [u8]) -> Vec<Segment<'a>> {
-    let mut result: Vec<Segment<'a>> = Vec::new();
+/// Tokenize the internal-code byte string into sentences
+/// (`FUN_00402240`, default mode with `DAT_00489140 == 0`).
+///
+/// The input is treated as NUL-terminated (like the original `strlen`);
+/// bytes after the first NUL are ignored.
+pub fn tokenize(text: &[u8]) -> Vec<Sentence> {
+    tokenize_with(text, false, MAX_SENTENCE_BYTES)
+}
 
-    let mut seg_start: usize = 0;
-    let mut seg_end: usize = 0;
-    let mut cur_kind: Option<SegKind> = None;
-    let mut prev_class: u8 = 0;
+/// Tokenize with the original's `DAT_00489140 ≠ 0` mode: `\r`/`\n` force a
+/// sentence break and the following run of `\r \n \t ' '` and KPS space
+/// (0xA1A1) is skipped.
+pub fn tokenize_crlf(text: &[u8]) -> Vec<Sentence> {
+    tokenize_with(text, true, MAX_SENTENCE_BYTES)
+}
 
-    let len = input.len();
-    let mut i = 0usize;
+/// Tokenize with explicit options.
+///
+/// `max_sentence_bytes`: force a sentence break once the current sentence
+/// exceeds this many bytes (default [`MAX_SENTENCE_BYTES`] = 496, per
+/// SPEC §2.2; pass a huge value to disable). The hard buffer limit
+/// [`HARD_FLUSH_LIMIT`] (49,996) always applies.
+pub fn tokenize_with(text: &[u8], crlf_breaks: bool, max_sentence_bytes: usize) -> Vec<Sentence> {
+    // strlen semantics of the original
+    let text = &text[..text.iter().position(|&b| b == 0).unwrap_or(text.len())];
+    let len = text.len();
 
-    macro_rules! flush {
-        ($break_type:expr, $after_ws:expr) => {{
-            if seg_end > seg_start {
-                let kind = cur_kind.unwrap_or(SegKind::Symbol);
-                result.push(Segment {
-                    bytes: &input[seg_start..seg_end],
-                    kind,
-                    break_after: $break_type,
-                    after_whitespace: $after_ws,
-                });
-            }
-        }};
+    // Flush the current sentence, optionally appending a delimiter first
+    // (FUN_00402180 / FUN_004021d0: no-op when the buffer is empty).
+    fn flush(
+        sentences: &mut Vec<Sentence>,
+        buf: &mut Vec<u8>,
+        start: usize,
+        prev_class: &mut u8,
+        delim: Option<&[u8]>,
+    ) {
+        if buf.is_empty() {
+            return;
+        }
+        if let Some(d) = delim {
+            buf.extend_from_slice(d);
+        }
+        sentences.push(Sentence {
+            text: std::mem::take(buf),
+            start,
+        });
+        *prev_class = 0;
     }
 
-    while i < len {
-        if let Some(ws_len) = is_whitespace_at(input, i) {
-            let mut j = i + ws_len;
-            while j < len {
-                if let Some(ws2) = is_whitespace_at(input, j) {
-                    j += ws2;
-                } else {
+    let mut sentences: Vec<Sentence> = Vec::new();
+    let mut buf: Vec<u8> = Vec::with_capacity(1024); // current sentence (≤ 50000)
+    let mut start: usize = 0; // byte offset where the current sentence began
+    let mut prev_class: u8 = 0; // obj+0x3c
+                                // NOTE: the original also stores the next-token class at obj+0x40, but
+                                // that state is dead — FUN_004428b0 (分節化) zeroes the whole 0x40
+                                // buffer before re-deriving it — so it is not reproduced here.
+
+    let mut pos = 0usize;
+    while pos < len {
+        if crlf_breaks && (text[pos] == b'\r' || text[pos] == b'\n') {
+            flush(&mut sentences, &mut buf, start, &mut prev_class, None);
+            // skip run of \r \n \t ' ' and KPS space (0xA1A1)
+            loop {
+                let Some(&c) = text.get(pos + 1) else { break };
+                let kps_space =
+                    pos + 2 < len && ((c as u16) << 8 | text[pos + 2] as u16) == KPS_SPACE;
+                if c != b'\r' && c != b'\n' && c != b'\t' && c != b' ' && !kps_space {
                     break;
                 }
-            }
-            let has_line_break = input[i..j].iter().any(|&b| b == b'\n' || b == b'\r');
-            let (break_after, after_ws) = if has_line_break {
-                (BreakType::Sentence, false)
-            } else {
-                (BreakType::None, true)
-            };
-            flush!(break_after, after_ws);
-            cur_kind = None;
-            prev_class = 0;
-            i = j;
-            seg_start = i;
-            seg_end = i;
-            continue;
-        }
-
-        let (cls, char_len) = {
-            let b = input[i];
-            if b.is_ascii_alphabetic() {
-                (KpsCharClass::FullwidthLetter, 1usize)
-            } else if b.is_ascii_digit() {
-                (KpsCharClass::FullwidthDigit, 1usize)
-            } else {
-                classify_next_char(&input[i..])
-            }
-        };
-        if char_len == 0 {
-            i += 1;
-            continue;
-        }
-
-        let char_bytes = &input[i..i + char_len];
-        let kind = class_to_kind(cls);
-        let cur_code = class_code(cls);
-
-        if let Some(existing_kind) = cur_kind
-            && existing_kind != kind
-        {
-            let pb_ahead = punct_boundary(char_bytes);
-            if pb_ahead != 0 {
-                let next_code_look = if i + char_len < len {
-                    let (nc, _) = classify_next(&input[i + char_len..]);
-                    class_code(nc)
-                } else {
-                    0
-                };
-                if let Some(bt) = punct_break_type(prev_class, next_code_look, pb_ahead) {
-                    seg_end = i;
-                    flush!(bt, false);
-                    cur_kind = None;
-                    prev_class = 0;
-                    i += char_len;
-                    seg_start = i;
-                    seg_end = i;
-                    continue;
-                } else {
-                    seg_end = i + char_len;
-                    prev_class = cur_code;
-                    i += char_len;
-                    continue;
+                pos += 1;
+                if c >= 0xA1 {
+                    pos += 1;
                 }
             }
-            seg_end = i;
-            flush!(BreakType::None, false);
-            seg_start = i;
-        }
-        seg_end = i + char_len;
-        cur_kind = Some(kind);
-
-        let pb = punct_boundary(char_bytes);
-
-        if pb != 0 {
-            let next_code = if i + char_len < len {
-                let (ncls, _) = classify_next(&input[i + char_len..]);
-                class_code(ncls)
-            } else {
-                0
-            };
-
-            if let Some(bt) = punct_break_type(prev_class, next_code, pb) {
-                flush!(bt, false);
-                cur_kind = None;
-                prev_class = 0;
-                i += char_len;
-                seg_start = i;
-                seg_end = i;
-                continue;
-            }
-        }
-
-        if seg_end - seg_start > 0x1f0 {
-            // 496-byte segment cap (original buffer limit)
-            flush!(BreakType::None, false);
-            cur_kind = None;
-            seg_start = seg_end;
-            prev_class = cur_code;
-            i += char_len;
+            pos += 1;
             continue;
         }
 
-        prev_class = cur_code;
-        i += char_len;
+        let b0 = text[pos];
+        let b1 = text.get(pos + 1).copied().unwrap_or(0);
+        let b2 = text.get(pos + 2).copied().unwrap_or(0);
+        let b3 = text.get(pos + 3).copied().unwrap_or(0);
+
+        // forced flush: hard buffer limit + SPEC §2.2 496-char limit
+        if buf.len() > HARD_FLUSH_LIMIT || buf.len() > max_sentence_bytes {
+            flush(&mut sentences, &mut buf, start, &mut prev_class, None);
+        }
+
+        if b0 < 0x80 {
+            // ---- ASCII ----
+            if !is_sentence_punct_ascii(b0) {
+                // plain 1-byte token
+                if buf.is_empty() {
+                    start = pos;
+                }
+                buf.push(b0);
+                prev_class = char_class(b0);
+            } else if buf.is_empty()
+                || pos + 1 >= len
+                || ((b1 > 0x7F || !is_continue_ascii(b1))
+                    && (b1 < 0xA1 || !is_continue_kps(((b1 as u16) << 8) | b2 as u16)))
+            {
+                // boundary candidate: check the '.' special cases
+                let (nc, _) = next_token_class(&text[pos + 1..]);
+                if buf.is_empty()
+                    || b0 != b'.'
+                    || (prev_class == 0x19 && nc == 1)
+                    || (prev_class == 4 && nc == 4)
+                    || (prev_class == 7 && nc == 7)
+                {
+                    // plain append ('.' of "3.14" / abbreviations stays inline)
+                    if buf.is_empty() {
+                        start = pos;
+                    }
+                    buf.push(b0);
+                    prev_class = char_class(b0);
+                } else {
+                    flush(&mut sentences, &mut buf, start, &mut prev_class, Some(b"."));
+                }
+            } else {
+                // next char continues (space etc.) → sentence ends with b0
+                flush(
+                    &mut sentences,
+                    &mut buf,
+                    start,
+                    &mut prev_class,
+                    Some(&[b0]),
+                );
+            }
+        } else if b0 > 0xA0 && b0 != 0xFF && b1 > 0xA0 {
+            // ---- 2-byte KPS9566 char ----
+            let ch = ((b0 as u16) << 8) | b1 as u16;
+            if !is_sentence_punct_kps(ch) {
+                // syllable token
+                if buf.is_empty() {
+                    start = pos;
+                }
+                buf.extend_from_slice(&[b0, b1]);
+                prev_class = char_class_16(ch);
+            } else if buf.is_empty()
+                || pos + 2 >= len
+                || ((b2 > 0x7F || !is_continue_ascii(b2))
+                    && (b2 < 0xA1 || !is_continue_kps(((b2 as u16) << 8) | b3 as u16)))
+            {
+                // boundary candidate; only '．' (0xA1A5) has the '.' exceptions
+                let (nc, _) = next_token_class(&text[pos + 2..]);
+                if buf.is_empty()
+                    || ch != KPS_FULL_STOP
+                    || (prev_class == 0x19 && nc == 1)
+                    || (prev_class == 4 && nc == 4)
+                    || (prev_class == 7 && nc == 7)
+                {
+                    if buf.is_empty() {
+                        start = pos;
+                    }
+                    buf.extend_from_slice(&[b0, b1]);
+                    prev_class = char_class_16(ch);
+                } else {
+                    flush(
+                        &mut sentences,
+                        &mut buf,
+                        start,
+                        &mut prev_class,
+                        Some(&[b0, b1]),
+                    );
+                }
+            } else {
+                flush(
+                    &mut sentences,
+                    &mut buf,
+                    start,
+                    &mut prev_class,
+                    Some(&[b0, b1]),
+                );
+            }
+            pos += 1; // 2-byte char: second increment below
+        }
+        // else: 0x80..0xA0 / 0xFF bytes are silently dropped
+        pos += 1;
     }
-
-    seg_end = i;
-    flush!(BreakType::None, false);
-
-    result
+    flush(&mut sentences, &mut buf, start, &mut prev_class, None);
+    sentences
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_punct_boundary_sentence() {
-        assert_eq!(punct_boundary(b"."), 9);
-        assert_eq!(punct_boundary(b"!"), 9);
-        assert_eq!(punct_boundary(b"\xa1\xa5"), 9); // KPS fullwidth period
+    /// Text convenience: sentence texts as byte strings.
+    fn texts(s: &[Sentence]) -> Vec<Vec<u8>> {
+        s.iter().map(|x| x.text.clone()).collect()
     }
 
     #[test]
-    fn test_punct_boundary_clause() {
-        assert_eq!(punct_boundary(b","), 7);
-        assert_eq!(punct_boundary(b":"), 7);
-        assert_eq!(punct_boundary(b"\xa1\xa4"), 7); // KPS fullwidth comma
-    }
-
-    #[test]
-    fn test_punct_boundary_none() {
-        assert_eq!(punct_boundary(b"a"), 0);
-        assert_eq!(punct_boundary(b"\xb9\xce"), 0); // KPS Korean syllable 민
-    }
-
-    #[test]
-    fn test_segment_ascii_words() {
-        // "hello world" — two Latin segments separated by a space
-        let input = b"hello world";
-        let segs = segment(input);
-        assert_eq!(segs.len(), 2);
-        assert_eq!(segs[0].bytes, b"hello");
-        assert_eq!(segs[0].kind, SegKind::Latin);
-        assert_eq!(segs[1].bytes, b"world");
-    }
-
-    #[test]
-    fn test_segment_sentences() {
-        // "abc. def" — sentence break after period
-        let input = b"abc. def";
-        let segs = segment(input);
-        // "abc" then "." then " " then "def"
-        // The period is flushed as symbol segment with Sentence break,
-        // then space is consumed, then "def".
-        let kinds: Vec<_> = segs.iter().map(|s| s.kind).collect();
-        assert!(kinds.contains(&SegKind::Latin));
-    }
-
-    #[test]
-    fn test_period_after_latin_gives_clause() {
-        // With the kind-change punctuation-lookahead fix, "Hello." is now ONE
-        // segment: '.' triggers the flush of "Hello" with Clause break (and is
-        // consumed itself, not added to a separate segment).
-        // Latin + period at end of input → Clause (short pause), not Sentence.
-        let input = b"Hello.";
-        let segs = segment(input);
-        // Only one segment: "Hello" (Latin, Clause break)
-        assert_eq!(segs.len(), 1);
-        assert_eq!(segs[0].kind, SegKind::Latin);
+    fn plain_korean_one_sentence() {
+        // 안녕하세요 (internal codes from KeyPad.Ebd)
+        let t = tokenize(&[0xca, 0xaf, 0xb2, 0xce, 0xc2, 0xd7, 0xbb, 0xbd, 0xca, 0xfd]);
         assert_eq!(
-            segs[0].break_after as u8,
-            BreakType::Clause as u8,
-            "period after Latin text → Clause (short pause), not Sentence"
+            texts(&t),
+            vec![vec![
+                0xca, 0xaf, 0xb2, 0xce, 0xc2, 0xd7, 0xbb, 0xbd, 0xca, 0xfd
+            ]]
+        );
+        assert_eq!(t[0].start, 0);
+    }
+
+    #[test]
+    fn ascii_period_space_breaks() {
+        // "Hello. World" → ["Hello.", " World"] — the space is a plain char
+        // (the 分節化 stage strips whitespace later, not the tokenizer)
+        let t = tokenize(b"Hello. World");
+        assert_eq!(texts(&t), vec![b"Hello.".to_vec(), b" World".to_vec()]);
+        assert_eq!(t[0].start, 0);
+        assert_eq!(t[1].start, 6);
+    }
+
+    #[test]
+    fn decimal_point_stays_inline() {
+        // "3.14" — '.' between digits (class 4/4) stays inline
+        let t = tokenize(b"3.14");
+        assert_eq!(texts(&t), vec![b"3.14".to_vec()]);
+        // "3.14 is pi" — '.' between digits, then space → break at ' '
+        // ('.' inline, then "is pi" continues; space is not a boundary)
+        let t = tokenize(b"3.14 is pi");
+        assert_eq!(texts(&t), vec![b"3.14 is pi".to_vec()]);
+    }
+
+    #[test]
+    fn period_between_syllables_stays_inline() {
+        // 가.나 — '.' (0x2E) after syllable class 0x19, next syllable 0x19:
+        // exceptions don't match → hmm: prev 0x19 but next class is 0x19,
+        // not 1 → flush with '.'
+        let 가 = [0xb0, 0xa1];
+        let 나 = [0xb1, 0xfd];
+        let mut input = Vec::new();
+        input.extend_from_slice(&가);
+        input.push(b'.');
+        input.extend_from_slice(&나);
+        let t = tokenize(&input);
+        assert_eq!(texts(&t), vec![vec![0xb0, 0xa1, b'.'], vec![0xb1, 0xfd]]);
+    }
+
+    #[test]
+    fn kps_punctuation_breaks() {
+        // 가．나 (fullwidth ．0xA1A5 between syllables) — same as above
+        let 가 = [0xb0, 0xa1];
+        let 나 = [0xb1, 0xfd];
+        let mut input = Vec::new();
+        input.extend_from_slice(&가);
+        input.extend_from_slice(&[0xA1, 0xA5]); // ．
+        input.extend_from_slice(&나);
+        let t = tokenize(&input);
+        assert_eq!(
+            texts(&t),
+            vec![vec![0xb0, 0xa1, 0xA1, 0xA5], vec![0xb1, 0xfd]]
         );
     }
 
     #[test]
-    fn test_period_after_korean_gives_sentence() {
-        // KPS Korean syllable 가 = 0xb0a1, followed by ASCII period.
-        // With the kind-change fix, '.' flushes "가" with Sentence (prev_class==1=Korean)
-        // and is consumed → Sentence break after Korean + period.
-        let input: &[u8] = &[0xb0, 0xa1, b'.'];
-        let segs = segment(input);
-        // One segment: Korean "가" with Sentence break
-        assert_eq!(segs.len(), 1);
-        assert_eq!(segs[0].kind, SegKind::Korean);
+    fn kps_space_continues_sentence() {
+        // 가． 나 (fullwidth period + KPS space) → break with ．; the space
+        // starts the next sentence (plain 2-byte char outside CRLF mode)
+        let 가 = [0xb0, 0xa1];
+        let 나 = [0xb1, 0xfd];
+        let mut input = Vec::new();
+        input.extend_from_slice(&가);
+        input.extend_from_slice(&[0xA1, 0xA5, 0xA1, 0xA1]); // ． + space
+        input.extend_from_slice(&나);
+        let t = tokenize(&input);
         assert_eq!(
-            segs[0].break_after as u8,
-            BreakType::Sentence as u8,
-            "period after Korean text → Sentence (long pause)"
+            texts(&t),
+            vec![vec![0xb0, 0xa1, 0xA1, 0xA5], vec![0xA1, 0xA1, 0xb1, 0xfd]]
         );
+        assert_eq!(t[1].start, 4);
     }
 
     #[test]
-    fn test_decimal_point_absorbed() {
-        // "3.14" — digit + period + digit → decimal separator.
-        // With the kind-change punctuation-lookahead fix, '.' is absorbed into the
-        // Number segment (punct_break_type returns None for prev=digit, next=digit).
-        // Result: ONE Number segment "3.14", correctly passed to apply_number_conversion.
-        let input = b"3.14";
-        let segs = segment(input);
-        assert_eq!(segs.len(), 1, "decimal point absorbed into Number segment");
-        assert_eq!(segs[0].kind, SegKind::Number);
-        assert_eq!(segs[0].bytes, b"3.14");
-        assert_eq!(segs[0].break_after as u8, BreakType::None as u8);
+    fn dropped_bytes_skipped() {
+        // 0x80..0xA0 and 0xFF bytes are silently dropped
+        let t = tokenize(&[0x41, 0x80, 0x9F, 0xFF, 0x42]);
+        assert_eq!(texts(&t), vec![b"AB".to_vec()]);
     }
 
     #[test]
-    fn test_segment_whitespace_only() {
-        let segs = segment(b"   \t\r\n");
-        assert!(segs.is_empty());
+    fn nul_terminates_input() {
+        let t = tokenize(b"AB\0CD");
+        assert_eq!(texts(&t), vec![b"AB".to_vec()]);
     }
 
     #[test]
-    fn newline_flush_matches_sentence_final_prosody() {
-        let segs = segment(b"A\nB");
-        assert_eq!(segs.len(), 2);
-        assert_eq!(segs[0].bytes, b"A");
-        assert_eq!(segs[0].break_after, BreakType::Sentence);
-        assert!(!segs[0].after_whitespace);
-        assert_eq!(segs[1].bytes, b"B");
+    fn empty_input_no_sentences() {
+        assert!(tokenize(b"").is_empty());
+        assert!(tokenize(&[0x80, 0xff]).is_empty()); // only dropped bytes
     }
 
     #[test]
-    fn ascii_space_only_keeps_word_gap_flag() {
-        let segs = segment(b"A B");
-        assert_eq!(segs.len(), 2);
-        assert_eq!(segs[0].break_after, BreakType::None);
-        assert!(segs[0].after_whitespace);
+    fn crlf_mode_breaks_on_newline() {
+        // default mode: \r\n are plain chars (class 0), no break
+        let t = tokenize(b"AB\r\nCD");
+        assert_eq!(texts(&t), vec![b"AB\r\nCD".to_vec()]);
+        // crlf mode: break + skip the whitespace run
+        let t = tokenize_crlf(b"AB\r\n  CD");
+        assert_eq!(texts(&t), vec![b"AB".to_vec(), b"CD".to_vec()]);
+        assert_eq!(t[1].start, 6); // 'C' is at offset 6
     }
 
     #[test]
-    fn test_segment_kps_fullwidth_space() {
-        // KPS full-width space 0xa1a2 followed by KPS text then ASCII
-        let input: &[u8] = &[0xa1, 0xa2, b'A', b'B'];
-        let segs = segment(input);
-        assert_eq!(segs.len(), 1);
-        assert_eq!(segs[0].bytes, b"AB");
+    fn sentence_start_offsets() {
+        // "Hi. Bye!" — '!' at end of text is a plain char (b0 != '.'),
+        // the final flush ends the sentence
+        let t = tokenize(b"Hi. Bye!");
+        assert_eq!(t[0].start, 0);
+        assert_eq!(texts(&t), vec![b"Hi.".to_vec(), b" Bye!".to_vec()]);
+        assert_eq!(t[1].start, 3);
     }
 
     #[test]
-    fn test_break_type_values() {
-        assert_eq!(BreakType::None as u8, 0);
-        assert_eq!(BreakType::Clause as u8, 7);
-        assert_eq!(BreakType::Sentence as u8, 8);
+    fn max_sentence_bytes_forced_break() {
+        // 496 default: 500 ASCII chars → forced break into 2 sentences
+        let input: Vec<u8> = (0..500u16).map(|i| (b'a' + (i % 26) as u8)).collect();
+        let t = tokenize(&input);
+        assert_eq!(t.len(), 2);
+        assert_eq!(t[0].text.len(), MAX_SENTENCE_BYTES + 1); // first sentence = 497 bytes
+                                                             // with a huge limit: single sentence
+        let t = tokenize_with(&input, false, usize::MAX);
+        assert_eq!(t.len(), 1);
+    }
+
+    #[test]
+    fn char_class_checks() {
+        assert_eq!(char_class(b'A'), 5);
+        assert_eq!(char_class(b'a'), 6);
+        assert_eq!(char_class(b'0'), 4);
+        assert_eq!(char_class(b' '), 1);
+        assert_eq!(char_class(b'.'), 1);
+        assert_eq!(char_class(0x09), 0); // tab maps to 9 → class 0
+        assert_eq!(char_class_16(0xB0A1), 0x19); // 가
+        assert_eq!(char_class_16(0xA1A5), 1); // ．
+        assert_eq!(char_class_16(0xA3C1), 5); // fullwidth A
+        assert_eq!(char_class_16(0x1234), 0);
+        assert!(is_sentence_punct_ascii(b'!'));
+        assert!(is_sentence_punct_ascii(b'.'));
+        assert!(is_sentence_punct_ascii(b'?'));
+        assert!(!is_sentence_punct_ascii(b','));
+        assert!(is_continue_ascii(b' '));
+        assert!(is_continue_ascii(0x09));
+        assert!(!is_continue_ascii(b'W'));
+        assert!(is_continue_kps(0xA1A1));
+        assert!(!is_continue_kps(0xA1A5));
+        assert!(is_sentence_punct_kps(0xA1A5));
+        assert!(is_sentence_punct_kps(0xA1A9));
+        assert!(is_sentence_punct_kps(0xA1AA));
+        assert!(!is_sentence_punct_kps(0xB0A1));
+        assert!(is_syllable_code(0xB0A1));
+        assert!(is_syllable_code(0xCCFE));
+        // range check only (FUN_0040af70): 0xA1A5 passes both byte ranges
+        assert!(is_syllable_code(0xA1A5));
+        assert!(!is_syllable_code(0xA0A1)); // lead must be > 0xA0
+        assert!(!is_syllable_code(0xCDA1)); // lead must be < 0xCD
+        assert!(!is_syllable_code(0xB1FF)); // trail must be < 0xFF
+    }
+
+    #[test]
+    fn next_token_class_checks() {
+        assert_eq!(next_token_class(b"Ab"), (5, 1));
+        assert_eq!(next_token_class(b"ab"), (6, 1));
+        assert_eq!(next_token_class(b"1x"), (4, 1));
+        assert_eq!(next_token_class(b"\t"), (0, 0));
+        assert_eq!(next_token_class(&[0x80]), (0, 0));
+        assert_eq!(next_token_class(&[0xB0, 0xA1]), (0x19, 2));
+        assert_eq!(next_token_class(&[0xA1, 0xA5]), (1, 2));
+        assert_eq!(next_token_class(&[0xFF]), (0, 0));
     }
 }
