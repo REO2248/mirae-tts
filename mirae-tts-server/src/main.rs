@@ -1,41 +1,44 @@
 //! 미래 2.0 HTTP API. `GET /` = bundled UI. WAV / stream (`audio/l16`) / raw PCM; POST JSON `{"text":"…"}` or GET `?text=`.
 //! `Arc<TtsEngine>` only — VoiceData is pread/`Send+Sync`, no mutex on synthesize.
 
+use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
+    Json, Router,
     body::Body,
     extract::{Query, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Response},
-    routing::{get},
-    Json, Router,
+    routing::get,
 };
 use bytes::Bytes;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
-use mirae_tts_engine::{encode_wav_vec, pcm_i16le_to_bytes, TtsConfig, TtsEngine};
+use mirae_tts_engine::{TtsConfig, TtsEngine, encode_wav_vec, pcm_i16le_to_bytes};
 
 #[derive(Parser)]
 #[command(name = "tts_server")]
 #[command(about = "미래 2.0 TTS — Web API server")]
 struct Cli {
     /// Socket address to bind to.
-    #[arg(long, env = "LISTEN", default_value = "0.0.0.0:3000")]
-    listen: String,
+    #[arg(long, env, default_value = "0.0.0.0:3000")]
+    listen: SocketAddr,
 
     /// Path to the dictionary directory (VoiceInfo.pkg, VoiceData.pkg, …).
-    #[arg(long = "dic", env = "DIC", default_value = "./Voice")]
-    dic: String,
+    #[arg(long, env, default_value = "/var/mirae-tts/Voice")]
+    voice_dir: PathBuf,
 
     /// Maximum length of text to synthesize (Unicode scalar count; 0 = unlimited).
-    #[arg(long = "maximum-length", env = "MAXIMUM_LENGTH", default_value_t = 0)]
+    #[arg(long, env, default_value_t = 0)]
     maximum_length: usize,
 }
 
@@ -245,10 +248,10 @@ async fn main() {
     tracing_subscriber::fmt().init();
 
     let cli = Cli::parse();
-    info!("Loading voice data from {:?}...", cli.dic);
+    info!("Loading voice data from {:?}...", cli.voice_dir);
 
     let engine = TtsEngine::new(
-        &cli.dic,
+        &cli.voice_dir,
         TtsConfig {
             log_progress: true,
             ..Default::default()
@@ -267,18 +270,37 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index))
-        .route("/api/synthesize", get(synthesize_wav_get).post(synthesize_wav))
-        .route("/api/synthesize_stream", get(synthesize_stream_get).post(synthesize_stream))
-        .route("/api/synthesize_raw", get(synthesize_raw_get).post(synthesize_raw))
+        .route(
+            "/api/synthesize",
+            get(synthesize_wav_get).post(synthesize_wav),
+        )
+        .route(
+            "/api/synthesize_stream",
+            get(synthesize_stream_get).post(synthesize_stream),
+        )
+        .route(
+            "/api/synthesize_raw",
+            get(synthesize_raw_get).post(synthesize_raw),
+        )
         .layer(CorsLayer::permissive())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(&cli.listen)
         .await
         .expect("Failed to bind");
+
     info!(
         "Listening on: {}",
         listener.local_addr().expect("local_addr")
     );
-    axum::serve(listener, app).await.expect("Server error");
+
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+
+    tokio::select! {
+        _ = sigterm.recv() => {},
+        _ = tokio::signal::ctrl_c() => {},
+        e = axum::serve(listener, app) => {
+            e.expect("Server Error");
+        },
+    }
 }

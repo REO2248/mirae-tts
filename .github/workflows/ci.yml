@@ -1,0 +1,321 @@
+name: CI
+
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '*/src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/ci.yml'
+      - 'rust-toolchain'
+  push:
+    branches:
+      - 'main'
+    tags:
+      - v*
+
+env:
+  CARGO_INCREMENTAL: 0
+  RUST_CACHE_VERSION: v1
+  REGISTRY_IMAGE: ghcr.io/yanorei32/mirae-tts-server
+  PROJ_NAME: mirae-tts-cli
+
+jobs:
+  release_windows:
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      contents: write
+
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          prefix-key: ${{ env.RUST_CACHE_VERSION }}-rust
+
+      - name: Build
+        run: |
+          cargo build --release -p mirae-tts-cli
+
+      - name: Install cargo license
+        run: |
+          cargo install cargo-license
+
+      - name: Create CREDITS file
+        shell: C:\shells\gitbash.exe {0}
+        run: |
+          cargo license \
+            --authors \
+            --do-not-bundle \
+            --avoid-dev-deps \
+            --filter-platform "$(rustc -vV | sed -n 's|host: ||p')" \
+              > CREDITS
+
+      - name: Make release file
+        shell: C:\shells\gitbash.exe {0}
+        run: |
+          DIR_NAME="${{ env.PROJ_NAME }}-windows-x86_64-${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('main-{0}', github.sha) }}"
+          mkdir "$DIR_NAME"
+          cp ./target/release/mirae-tts-cli.exe "$DIR_NAME/"
+          cp ./LICENSE "$DIR_NAME/"
+          cp ./CREDITS "$DIR_NAME/"
+          cp ./README.md "$DIR_NAME/"
+          7z a "$DIR_NAME.zip" "$DIR_NAME/"
+
+      - name: pre-release
+        uses: softprops/action-gh-release@v3.0.2
+        if: "! startsWith(github.ref, 'refs/tags/')"
+        with:
+          tag_name: main-${{ github.sha }}
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            *.zip
+
+      - name: tagged-release
+        uses: softprops/action-gh-release@v3.0.2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            *.zip
+
+  release_linux:
+    if: ${{ github.event_name != 'pull_request' }}
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ghimage: ubuntu-24.04
+            arch_s: x86_64
+
+          - ghimage: ubuntu-24.04-arm
+            arch_s: aarch64
+
+    permissions:
+      contents: write
+
+    runs-on: ${{ matrix.ghimage }}
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install cargo license
+        run: |
+          cargo install cargo-license
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          prefix-key: ${{ env.RUST_CACHE_VERSION }}-rust
+
+      - name: Build
+        run: |
+          cargo build --release -p mirae-tts-cli
+
+      - name: Create CREDITS file
+        run: |
+          cargo license \
+            --authors \
+            --do-not-bundle \
+            --avoid-dev-deps \
+            --filter-platform "$(rustc -vV | sed -n 's|host: ||p')" \
+              > CREDITS
+
+      - name: Make release file
+        run: |
+          DIR_NAME="${{ env.PROJ_NAME }}-linux-${{ matrix.arch_s }}-${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('main-{0}', github.sha) }}"
+          mkdir "$DIR_NAME"
+          cp ./target/release/mirae-tts-cli "$DIR_NAME/"
+          cp ./LICENSE "$DIR_NAME/"
+          cp ./CREDITS "$DIR_NAME/"
+          cp ./README.md "$DIR_NAME/"
+          tar cvf "$DIR_NAME.tar.gz" "$DIR_NAME/"
+
+      - name: pre-release
+        uses: softprops/action-gh-release@v3.0.2
+        if: "! startsWith(github.ref, 'refs/tags/')"
+        with:
+          tag_name: main-${{ github.sha }}
+          prerelease: true
+          fail_on_unmatched_files: true
+          files: |
+            *.tar.gz
+
+      - name: tagged-release
+        uses: softprops/action-gh-release@v3.0.2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            *.tar.gz
+
+  clippy_and_test:
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ghimage: ubuntu-24.04
+          - ghimage: ubuntu-24.04-arm
+
+    permissions:
+      checks: write
+
+    runs-on: ${{ matrix.ghimage }}
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Get Rust toolchain
+        id: toolchain
+        run: |
+          awk -F'[ ="]+' '$1 == "channel" { print "toolchain=" $2 }' rust-toolchain >> "$GITHUB_OUTPUT"
+
+      - name: install clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ steps.toolchain.outputs.toolchain }}
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2.9.2
+        with:
+          prefix-key: ${{ env.RUST_CACHE_VERSION }}-rust
+
+      - name: clippy check
+        uses: yanorei32/action-clippy@50412b135153ebee7d4b8a5b868c4defdc663683
+        with:
+          reporter: github-check
+
+      - name: cargo check
+        run: |
+          cargo check
+
+  docker_build:
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ghimage: ubuntu-24.04
+            dockerarch: linux/amd64
+            rustfscliarch: amd64
+            arch_short: amd64
+
+          - ghimage: ubuntu-24.04-arm
+            dockerarch: linux/arm64
+            rustfscliarch: arm64
+            arch_short: arm64
+
+    permissions:
+      packages: write
+      contents: read
+
+    runs-on: ${{ matrix.ghimage }}
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          submodules: true
+
+      - run: |
+          # depName=rustfs/cli
+          RUSTFS_CLI_VERSION="v0.1.31"
+          RUSTFS_CLI_TAR_NAME="rustfs-cli-linux-${{ matrix.rustfscliarch }}-$RUSTFS_CLI_VERSION.tar.gz"
+          wget "https://github.com/rustfs/cli/releases/download/$RUSTFS_CLI_VERSION/$RUSTFS_CLI_TAR_NAME"
+          tar xf "$RUSTFS_CLI_TAR_NAME"
+          rm "$RUSTFS_CLI_TAR_NAME"
+          sudo mv rc /bin/
+
+          rc alias set yr32srv https://rustfs-s3.yr32.net mirae-tts-ci "${{ secrets.YR32SRV_MIRAETTS_CI_SECRET }}"
+          rc cp yr32srv/mirae-tts/Voice.zip ./Voice.zip
+          unzip Voice.zip
+
+      - uses: docker/metadata-action@v6.2.0
+        id: meta
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
+
+      - uses: docker/setup-buildx-action@v4.2.0
+
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push
+        uses: docker/build-push-action@v7.3.0
+        id: build
+        with:
+          context: .
+          platforms: ${{ matrix.dockerarch }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Export Digest
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v7.0.1
+        if: ${{ github.event_name != 'pull_request' }}
+        with:
+          name: digests-${{ matrix.arch_short }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  docker_merge:
+    runs-on: ubuntu-24.04
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      contents: read
+      packages: write
+
+    needs:
+      - docker_build
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8.0.1
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4.2.0
+
+      - uses: docker/metadata-action@v6.2.0
+        id: meta
+        with:
+          images: ${{ env.REGISTRY_IMAGE }}
+
+      - uses: docker/login-action@v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ steps.meta.outputs.version }}
