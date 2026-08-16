@@ -1,4 +1,4 @@
-//! Mirae pipeline: KPS segment → phoneme (+Speech/COLLIGATION) → unit select → VoiceData PCM.
+//! Mirae pipeline: KPS segment → phoneme (+Speech/colligation) → unit select → VoiceData PCM.
 
 use std::borrow::Cow;
 use std::io;
@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use crate::colligation::Colligation;
 use crate::english::english_to_korean;
 use crate::number::apply_number_conversion;
-use crate::phoneme::{text_to_phonemes_with_context, PhonemeUnit};
-use crate::segmenter::{segment, BreakType, SegKind};
+use crate::phoneme::{PhonemeUnit, text_to_phonemes_with_context};
+use crate::segmenter::{BreakType, SegKind, segment};
 use crate::speech::SpeechDict;
 use crate::unit_select::{select_units_for_sequence, smooth_pitch_pass};
 use crate::voice_info::{VoiceDataReader, VoiceInfo};
@@ -45,7 +45,7 @@ pub struct TtsEngine {
 }
 
 impl TtsEngine {
-    /// VoiceInfo.pkg + VoiceData.pkg required; optional Speech.pkg, COLLIGATION.PKG.
+    /// VoiceInfo.pkg + VoiceData.pkg required; optional Speech.pkg, colligation.pkg.
     pub fn new<P: AsRef<Path>>(voice_dir: P, config: TtsConfig) -> io::Result<Self> {
         let voice_dir = voice_dir.as_ref().to_path_buf();
         let log = config.log_progress;
@@ -98,13 +98,13 @@ impl TtsEngine {
         };
 
         let colligation = {
-            let p = voice_dir.join("COLLIGATION.PKG");
+            let p = voice_dir.join("colligation.pkg");
             if p.exists() {
                 match Colligation::load(&p) {
                     Ok(c) => {
                         if log {
                             debug!(
-                                "[TtsEngine] Loaded COLLIGATION.PKG ({} nodes, {} rules)",
+                                "[TtsEngine] Loaded colligation.pkg ({} nodes, {} rules)",
                                 c.node_count(),
                                 c.record_count()
                             );
@@ -113,12 +113,13 @@ impl TtsEngine {
                     }
                     Err(e) => {
                         if log {
-                            warn!("[TtsEngine] Warning: could not load COLLIGATION.PKG: {e}");
+                            warn!("[TtsEngine] Warning: could not load colligation.pkg: {e}");
                         }
                         None
                     }
                 }
             } else {
+                warn!("[TtsEngine] Warning: colligation.pkg is not exists");
                 None
             }
         };
@@ -139,13 +140,13 @@ impl TtsEngine {
 
         if phonemes.is_empty() {
             if self.config.log_progress {
-                    debug!("[TtsEngine] No phonemes generated for input text");
+                debug!("[TtsEngine] No phonemes generated for input text");
             }
             return Ok(Vec::new());
         }
 
         if self.config.log_progress {
-                debug!("[TtsEngine] Generated {} phoneme units", phonemes.len());
+            debug!("[TtsEngine] Generated {} phoneme units", phonemes.len());
         }
 
         // Type-1 template hypos before vowel split / CV fallback.
@@ -166,7 +167,7 @@ impl TtsEngine {
 
         let matched_count = selected.iter().filter(|s| s.is_some()).count();
         if self.config.log_progress {
-                debug!(
+            debug!(
                 "[TtsEngine] Selected {}/{} voice units",
                 matched_count,
                 phonemes.len()
@@ -175,9 +176,7 @@ impl TtsEngine {
 
         if matched_count == 0 {
             if self.config.log_progress {
-                warn!(
-                    "[TtsEngine] Warning: No voice units matched. Check VoiceInfo.pkg format."
-                );
+                warn!("[TtsEngine] Warning: No voice units matched. Check VoiceInfo.pkg format.");
             }
             return Ok(Vec::new());
         }
@@ -190,7 +189,7 @@ impl TtsEngine {
         )?;
 
         if self.config.log_progress {
-                debug!("[TtsEngine] Rendered {} PCM samples", pcm.len());
+            debug!("[TtsEngine] Rendered {} PCM samples", pcm.len());
         }
 
         Ok(pcm)

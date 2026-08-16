@@ -424,20 +424,18 @@ fn apply_inter_syllable_rules(word: &mut [u16], param3: u8, param4: u8, mode: u8
         let bvar7 = bvar19 == 3 && param4 != 0;
 
         match bvar15 {
-            0 => {
-                if !bvar4 {
-                    if bvar3 {
-                        bvar19 = t_tensify(bvar19);
-                    } else if bvar5 {
-                        bvar15 = 0x12;
-                    } else if bvar22 {
-                        if bvar21 {
-                            bvar15 = 0x1B;
-                            bvar19 = 0;
-                        }
-                    } else {
-                        bvar19 = 9;
+            0 if !bvar4 => {
+                if bvar3 {
+                    bvar19 = t_tensify(bvar19);
+                } else if bvar5 {
+                    bvar15 = 0x12;
+                } else if bvar22 {
+                    if bvar21 {
+                        bvar15 = 0x1B;
+                        bvar19 = 0;
                     }
+                } else {
+                    bvar19 = 9;
                 }
             }
             1 => {
@@ -453,14 +451,12 @@ fn apply_inter_syllable_rules(word: &mut [u16], param3: u8, param4: u8, mode: u8
                     bvar15 = 0;
                 }
             }
-            2 => {
-                if !bvar6 {
-                    if bvar7 {
-                        bvar15 = 6;
-                    } else if bvar21 {
-                        bvar15 = 0x1B;
-                        bvar19 = 1;
-                    }
+            2 if !bvar6 => {
+                if bvar7 {
+                    bvar15 = 6;
+                } else if bvar21 {
+                    bvar15 = 0x1B;
+                    bvar19 = 1;
                 }
             }
             3 => {
@@ -590,11 +586,9 @@ fn apply_inter_syllable_rules(word: &mut [u16], param3: u8, param4: u8, mode: u8
                     }
                 }
             }
-            14 => {
-                if !bvar12 && bvar21 {
-                    bvar15 = 0x1B;
-                    bvar19 = 4;
-                }
+            14 if !bvar12 && bvar21 => {
+                bvar15 = 0x1B;
+                bvar19 = 4;
             }
             15 => {
                 if bvar3 {
@@ -949,14 +943,12 @@ fn apply_word_boundary_rules(
                 bvar23 = t_tensify(bvar22);
             }
         }
-        2 => {
-            if !bvar11 {
-                if bvar12 {
-                    bvar23 = t_tensify(bvar22);
-                } else if bvar5 {
-                    bvar23 = 1;
-                    bvar20 = 0x1B;
-                }
+        2 if !bvar11 => {
+            if bvar12 {
+                bvar23 = t_tensify(bvar22);
+            } else if bvar5 {
+                bvar23 = 1;
+                bvar20 = 0x1B;
             }
         }
         3 => {
@@ -1074,14 +1066,12 @@ fn apply_word_boundary_rules(
                 bvar20 = 6;
             }
         }
-        14 => {
-            if !bvar16 {
-                if bvar12 {
-                    bvar23 = t_tensify(bvar22);
-                } else if bvar5 {
-                    bvar23 = 4;
-                    bvar20 = 0x1B;
-                }
+        14 if !bvar16 => {
+            if bvar12 {
+                bvar23 = t_tensify(bvar22);
+            } else if bvar5 {
+                bvar23 = 4;
+                bvar20 = 0x1B;
             }
         }
         15 => {
@@ -1122,10 +1112,8 @@ fn apply_word_boundary_rules(
                 bvar20 = 5;
             }
         }
-        18 => {
-            if bvar12 {
-                bvar23 = t_tensify(bvar22);
-            }
+        18 if bvar12 => {
+            bvar23 = t_tensify(bvar22);
         }
         19 => {
             if bvar5 {
@@ -1245,10 +1233,8 @@ fn apply_word_boundary_rules(
                 bvar20 = 5;
             }
         }
-        27 => {
-            if bvar12 {
-                bvar23 = t_tensify(bvar22);
-            }
+        27 if bvar12 => {
+            bvar23 = t_tensify(bvar22);
         }
         _ => {}
     }
@@ -1424,15 +1410,13 @@ pub fn apply_final_inter_segment_rules(
                 bvar25 = if bvar13 { 0 } else { 0x12 };
             }
         }
-        2 => {
-            if !bvar5_mode && !bvar14 {
-                if bvar12 {
-                    bvar25 = 0x1B;
-                    bvar30 = 1;
-                } else if !bvar9 && bvar10 {
-                    bvar30 = t_tensify(bvar30);
-                    bvar25 = 2;
-                }
+        2 if !bvar5_mode && !bvar14 => {
+            if bvar12 {
+                bvar25 = 0x1B;
+                bvar30 = 1;
+            } else if !bvar9 && bvar10 {
+                bvar30 = t_tensify(bvar30);
+                bvar25 = 2;
             }
         }
         3 => {
@@ -1581,15 +1565,13 @@ pub fn apply_final_inter_segment_rules(
                 bvar30 = 0x10;
             }
         }
-        14 => {
-            if !bvar22 {
-                if bvar12 {
-                    bvar25 = 0x1B;
-                    bvar30 = 4;
-                } else if bvar10 {
-                    bvar30 = t_tensify(bvar30);
-                    bvar25 = 0x0E;
-                }
+        14 if !bvar22 => {
+            if bvar12 {
+                bvar25 = 0x1B;
+                bvar30 = 4;
+            } else if bvar10 {
+                bvar30 = t_tensify(bvar30);
+                bvar25 = 0x0E;
             }
         }
         15 => {
@@ -2136,7 +2118,7 @@ pub fn neutralize_codas(syllables: &mut [u16]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::korean::{decompose_char, pack_syllable, DecomposedChar};
+    use crate::korean::{DecomposedChar, decompose_char, pack_syllable};
 
     /// Helper: decompose Korean text into raw packed syllable IDs
     fn text_to_raw_ids(text: &str) -> Vec<u16> {

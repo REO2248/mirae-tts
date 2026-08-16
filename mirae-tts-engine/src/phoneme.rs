@@ -191,13 +191,7 @@ pub fn compute_emphasis(seg_type: u8, flags: u8) -> bool {
 
 pub fn raw_break_type_to_level(raw: u8, is_last: bool) -> u8 {
     match raw {
-        0 => {
-            if is_last {
-                1
-            } else {
-                0
-            }
-        }
+        0 if is_last => 1,
         1 => 1,
         2 | 5 => 3,
         3 => 2,

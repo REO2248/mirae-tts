@@ -18,12 +18,12 @@ mod voice_info;
 mod wave_render;
 
 pub use synthesizer::{TtsConfig, TtsEngine};
-pub use wave_render::{encode_wav_vec, pcm_i16le_to_bytes, DEFAULT_SAMPLE_RATE};
+pub use wave_render::{DEFAULT_SAMPLE_RATE, encode_wav_vec, pcm_i16le_to_bytes};
 
 /// Same as the crate root: [`TtsEngine`], [`TtsConfig`], WAV/PCM helpers.
 pub mod prelude {
     pub use super::{
-        encode_wav_vec, pcm_i16le_to_bytes, TtsConfig, TtsEngine, DEFAULT_SAMPLE_RATE,
+        DEFAULT_SAMPLE_RATE, TtsConfig, TtsEngine, encode_wav_vec, pcm_i16le_to_bytes,
     };
 }
 

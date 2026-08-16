@@ -2088,8 +2088,10 @@ mod tests {
         assert_eq!(marks.len(), 1);
         // This key `0d1437` was confirmed to match a type-4 rule with params[0]=4
         // (default variant) from binary analysis.
-        assert!(marks[0],
-            "Syllable final_c=13,medium=1,initial=15 (key 0d1437) should have a colligation type-4 match");
+        assert!(
+            marks[0],
+            "Syllable final_c=13,medium=1,initial=15 (key 0d1437) should have a colligation type-4 match"
+        );
     }
 
     #[test]
@@ -2184,8 +2186,10 @@ mod tests {
         let matches = super::find_type1_matches(&[sid]);
         // At least one match should be found for this syllable.
         let has_match = matches.iter().any(|m| m.syllable_idx == 0);
-        assert!(has_match,
-            "Entry 25 search=[3] should match a syllable with initial=3 at stream pos 2 (mod 3 == 2)");
+        assert!(
+            has_match,
+            "Entry 25 search=[3] should match a syllable with initial=3 at stream pos 2 (mod 3 == 2)"
+        );
     }
 
     #[test]

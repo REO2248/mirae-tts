@@ -449,13 +449,8 @@ fn lts_post_process(tokens: Vec<LtsToken>) -> Vec<LtsToken> {
     }
     let mut keep2 = vec![true; n];
 
-    let single_char = |t: &LtsToken| -> Option<u8> {
-        if t.0.len() == 1 {
-            Some(t.0[0])
-        } else {
-            None
-        }
-    };
+    let single_char =
+        |t: &LtsToken| -> Option<u8> { if t.0.len() == 1 { Some(t.0[0]) } else { None } };
 
     let mut i = 0;
     while i < n {
@@ -652,7 +647,7 @@ mod tests {
         // 'wr' → silent w.  "write" starts with r sound, not w.
         let k_before = english_to_korean("rite"); // no 'w'
         let k_write = english_to_korean("write"); // with 'w'
-                                                  // "write" phoneme output should equal "rite" (silent w dropped)
+        // "write" phoneme output should equal "rite" (silent w dropped)
         assert_eq!(
             k_write, k_before,
             "write vs rite: 'w' should be silent, write={}, rite={}",

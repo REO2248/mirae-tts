@@ -1,6 +1,11 @@
 # mirae-tts
 
+<img width="800" height="279" alt="image" src="https://github.com/user-attachments/assets/8d2d1eb9-fa88-4ef3-96d1-6e2946020008" />
+
 Rust implementation of the 《미래》2.0 TTS : command-line tool, optional HTTP API, and library crate.
+
+## Official Hosted Instance
+https://miraetts.yr32.net/
 
 ## CLI (`mirae-tts-cli`)
 
@@ -9,17 +14,18 @@ The workspace provides a CLI package named `mirae-tts-cli`. The CLI reads Korean
 **Invocation**
 
 ```text
-cargo run -p mirae-tts-cli --release -- [OPTIONS] <VOICE_DIR>
+cargo run -p mirae-tts-cli --release -- [OPTIONS]
 ```
 
 `VOICE_DIR` is the path to the voice resources the engine loads. Text is taken from **stdin** (full read, then trimmed) unless `-t` / `--text` is given. Empty text after trim is an error.
 
 
-| Option                    | Description                                  |
-| ------------------------- | -------------------------------------------- |
-| `-t`, `--text <TEXT>`     | Input text (omit to read stdin).             |
-| `-o`, `--output <PATH>`   | Write output to this file (default: stdout). |
-| `-f`, `--format <FORMAT>` | Output encoding (default: `wav`). See below. |
+| Option                     | Description                                         |
+| -------------------------- | --------------------------------------------------- |
+| `-v`, `--voice-dir <TEXT>` | Voice directory. (default: `/var/mirae-tts/Voice/`) |
+| `-t`, `--text <TEXT>`      | Input text (omit to read stdin).                    |
+| `-o`, `--output <PATH>`    | Write output to this file (default: stdout).        |
+| `-f`, `--format <FORMAT>`  | Output encoding (default: `wav`). See below.        |
 
 
 **`--format` values** (`mirae-tts-cli --help` lists aliases)
@@ -29,7 +35,6 @@ cargo run -p mirae-tts-cli --release -- [OPTIONS] <VOICE_DIR>
 | ------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `wav`        | `wave`   | WAV container, mono PCM16 LE.                                                                                                                                               |
 | `pcm`        | `raw`    | One raw mono PCM16 LE buffer (no header); same layout as `GET /api/synthesize_raw`.                                                                                         |
-
 | `pcm-stream` | `stream` | Raw mono PCM16 LE written **incrementally** as segments complete; chunking matches the HTTP `audio/l16` stream. With stdout, a closed pipe (e.g. player exited) is ignored. |
 
 
@@ -38,10 +43,10 @@ With `cargo run`, pass program arguments after `--` (everything before `--` is f
 ### Examples (`cargo run`)
 
 ```bash
-echo "안녕하십니까?" | cargo run -p mirae-tts-cli --release -- ./Voice > output.wav
-echo "안녕하십니까?" | cargo run -p mirae-tts-cli --release -- ./Voice -f pcm | aplay -t raw -f S16_LE -c 1 -r 22050
-cargo run -p mirae-tts-cli --release -- ./Voice -t "안녕하십니까?" -f pcm-stream -o output.pcm
-cargo run -p mirae-tts-cli --release -- ./Voice -t "안녕하십니까?" -o output.wav
+echo "안녕하십니까?" | cargo run -p mirae-tts-cli --release -- -v ./Voice > output.wav
+echo "안녕하십니까?" | cargo run -p mirae-tts-cli --release -- -v ./Voice -f pcm | aplay -t raw -f S16_LE -c 1 -r 22050
+cargo run -p mirae-tts-cli --release -- -v ./Voice -t "안녕하십니까?" -f pcm-stream -o output.pcm
+cargo run -p mirae-tts-cli --release -- -v ./Voice -t "안녕하십니까?" -o output.wav
 ```
 
 After `cargo build -p mirae-tts-cli --release`, run `./target/release/mirae-tts-cli` with the same arguments.
@@ -57,16 +62,16 @@ cargo run -p mirae-tts-server --release -- --dic ./Voice
 `mirae-tts-server` can be configured with command-line flags or the corresponding environment variables:
 
 
-| Flag               | Environment variable | Default        | Description                                                |
-| ------------------ | -------------------- | -------------- | ---------------------------------------------------------- |
-| `--listen`         | `LISTEN`             | `0.0.0.0:3000` | Host and port to bind (`host:port`).                       |
-| `--dic`            | `DIC`                | `./Voice`      | Path to the voice data directory.                          |
-| `--maximum-length` | `MAXIMUM_LENGTH`     | `0`            | Input length limit in Unicode scalars; `0` means no limit. |
+| Flag               | Environment variable | Default                | Description                                                |
+| ------------------ | -------------------- | ---------------------- | ---------------------------------------------------------- |
+| `--listen`         | `LISTEN`             | `0.0.0.0:3000`         | Host and port to bind (`host:port`).                       |
+| `--voice-dir`      | `VOICE_DIR`          | `/var/mirae-tts/Voice` | Path to the voice data directory.                          |
+| `--maximum-length` | `MAXIMUM_LENGTH`     | `0`                    | Input length limit in Unicode scalars; `0` means no limit. |
 
 
 ### Docker
 
-The container image runs `mirae-tts-server` with the same flags/env vars as above (see `Dockerfile` / `compose.yaml` for `LISTEN`, `DIC`, `MAXIMUM_LENGTH`).
+The container image runs `mirae-tts-server` with the same flags/env vars as above (see `Dockerfile` / `compose.yaml` for `LISTEN`, `VOICE_DIR`, `MAXIMUM_LENGTH`).
 
 ```bash
 docker build -t mirae-tts-server .

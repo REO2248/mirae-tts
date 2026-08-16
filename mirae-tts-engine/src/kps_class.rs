@@ -254,18 +254,18 @@ mod tests {
         // Fullwidth digits: 0xa3b0-0xa3b9
         assert_eq!(kps_char_range_index(0xa3b1), 4); // '１'
         assert_eq!(kps_char_range_index(0xa3b9), 4); // '９'
-                                                     // Fullwidth uppercase: 0xa3c1-0xa3da
+        // Fullwidth uppercase: 0xa3c1-0xa3da
         assert_eq!(kps_char_range_index(0xa3c1), 5); // 'Ａ'
-                                                     // Fullwidth lowercase: 0xa3e1-0xa3fa
+        // Fullwidth lowercase: 0xa3e1-0xa3fa
         assert_eq!(kps_char_range_index(0xa3e1), 6); // 'ａ'
-                                                     // Korean jamo: 0xa4a1-0xa4d3
+        // Korean jamo: 0xa4a1-0xa4d3
         assert_eq!(kps_char_range_index(0xa4a1), 7); // ㄱ
-                                                     // Special Korean Character: 0xa4e8-0xa4ed
+        // Special Korean Character: 0xa4e8-0xa4ed
         assert_eq!(kps_char_range_index(0xa4e8), 8);
         // Korean syllable: 0xb0a1-0xcccf
         assert_eq!(kps_char_range_index(0xb0a1), 25); // 가
         assert_eq!(kps_char_range_index(0xccab), 25); // some late syllable
-                                                      // Hanja: 0xcda1+
+        // Hanja: 0xcda1+
         assert_eq!(kps_char_range_index(0xcda1), 26);
         // Out-of-range: 0
         assert_eq!(kps_char_range_index(0xa000), 0);
