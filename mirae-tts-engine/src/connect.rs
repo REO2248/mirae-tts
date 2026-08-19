@@ -83,4 +83,3 @@ mod tests {
         assert!(ConnectMatrix::parse(&[0u8; 3]).is_none());
     }
 }
-

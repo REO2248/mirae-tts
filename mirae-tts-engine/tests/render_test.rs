@@ -2,9 +2,11 @@
 //! Data from the real Voice directory (MIRAE2_VOICE_DIR overridable).
 use std::path::{Path, PathBuf};
 
-use mirae_tts_engine::render::{is_real_phoneme, render_units, Chunk, ChunkRing, RenderUnit, UnitRecord};
+use mirae_tts_engine::render::{
+    Chunk, ChunkRing, RenderUnit, UnitRecord, is_real_phoneme, render_units,
+};
 use mirae_tts_engine::voice_data::VoiceData;
-use mirae_tts_engine::wav::{write_wav_file, write_wav_header, WavWriter, WAV_HEADER_SIZE};
+use mirae_tts_engine::wav::{WAV_HEADER_SIZE, WavWriter, write_wav_file, write_wav_header};
 use mirae_tts_engine::{RING_MAX_BYTES, RING_SLOTS};
 
 fn voice_dir() -> PathBuf {
@@ -53,7 +55,6 @@ fn open_voice_data(dir: &Path) -> VoiceData {
         .unwrap_or_else(|e| panic!("VoiceData.pkg を開けない: {e} ({})", dir.display()))
 }
 
-
 #[test]
 fn voiceinfo_entry0_and_chain() {
     let dir = voice_dir();
@@ -78,7 +79,6 @@ fn voiceinfo_entry0_and_chain() {
         "sum(wlen)×2 != VoiceData.pkg サイズ"
     );
 }
-
 
 #[test]
 fn voice_data_entry0_first_bytes() {
@@ -107,7 +107,6 @@ fn voice_data_entry1_follows_entry0() {
     assert_eq!(&raw[..5658 * 2], &e0[..]);
     assert_eq!(&e1[..2], &raw[11316..11318]);
 }
-
 
 #[test]
 fn render_entry0_with_doubling() {
@@ -255,7 +254,6 @@ fn is_real_phoneme_table() {
     assert!(is_real_phoneme(0, 5));
 }
 
-
 #[test]
 fn chunk_ring_20_slots_and_1mb_limit() {
     let mut ring = ChunkRing::new();
@@ -338,7 +336,6 @@ fn produce_chunks_streaming() {
     }
     assert_eq!(joined, expected, "チャンク連結結果が一括 render と不一致");
 }
-
 
 #[test]
 fn wav_header_46_bytes_exact() {
@@ -462,4 +459,3 @@ fn wav_ffprobe_readable() {
     assert!(stdout.contains("channels=1"), "stdout: {stdout}");
     let _ = std::fs::remove_file(&path);
 }
-

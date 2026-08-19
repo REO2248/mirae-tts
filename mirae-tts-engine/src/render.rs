@@ -3,7 +3,7 @@
 //! inserts pause silence; 20-slot x 16B ring buffer + 1MB total limit.
 use std::io;
 
-use crate::voice_data::{VoiceData, SCRATCH_SIZE};
+use crate::voice_data::{SCRATCH_SIZE, VoiceData};
 use crate::{RING_MAX_BYTES, RING_SLOTS};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -87,7 +87,12 @@ pub fn render_units(
                     if std::env::var("MIRAE_DEBUG").is_ok() {
                         eprintln!(
                             "[render-extra] add woff={} wlen={} pitch={} cls={:02x} cur={:04x} next={:04x}",
-                            extra.woff, extra.wlen, extra.pitch, u.record.classcode, u.code_cur, u.code_next
+                            extra.woff,
+                            extra.wlen,
+                            extra.pitch,
+                            u.record.classcode,
+                            u.code_cur,
+                            u.code_next
                         );
                     }
                     let n2 = data.read_unit(extra.woff, extra.wlen, &mut scratch)?;
@@ -220,4 +225,3 @@ pub fn produce_chunks(
     }
     Ok(produced)
 }
-

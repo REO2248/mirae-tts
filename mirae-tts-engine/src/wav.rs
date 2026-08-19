@@ -93,4 +93,3 @@ impl WavWriter {
         Ok(self.data_size)
     }
 }
-

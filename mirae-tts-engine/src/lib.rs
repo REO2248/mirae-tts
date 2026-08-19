@@ -1,12 +1,14 @@
 //! Text-to-speech library: [`TtsEngine`], [`TtsConfig`], [`encode_wav_vec`] / [`pcm_i16le_to_bytes`].
 //! Byte-exact Rust port of the original Future.exe TTS engine: text -> keypad -> segmenter ->
 //! g2p -> tone -> record -> unit_select -> render -> PCM (22050 Hz / s16le / mono).
+pub mod alphabet;
 pub mod connect;
 pub mod dict;
 pub mod digit_tables;
 pub mod g2p;
 pub mod keypad;
 pub mod kps_tables;
+pub mod postprocess_tables;
 pub mod record;
 pub mod render;
 pub mod segmenter;
@@ -26,7 +28,7 @@ use dict::Dict;
 use g2p::g2p_dict::{self, G2pDicts, WordFinalTone, WordRecord};
 use keypad::KeyPad;
 use record::ProsodyRecord;
-use segmenter::{next_token_class, KPS_FULL_STOP, Sentence};
+use segmenter::{KPS_FULL_STOP, Sentence, next_token_class};
 use unit_select::{ProcessedUnits, UnitSelectConfig, UnitSelector};
 use voice_data::VoiceData;
 use voice_info::VoiceInfo;
@@ -120,12 +122,12 @@ pub(crate) struct Mirae2Engine {
     conjects: Dict,
     connect: ConnectMatrix,
     cfg: EngineConfig,
-/// Verbose pipeline debug output (from `TtsConfig::log_progress` or `MIRAE_DEBUG`).
+    /// Verbose pipeline debug output (from `TtsConfig::log_progress` or `MIRAE_DEBUG`).
     debug_log: bool,
 }
 
 impl Mirae2Engine {
-/// Load all voice data from the voice directory plus the KeyPad.Ebd table.
+    /// Load all voice data from the voice directory plus the KeyPad.Ebd table.
     pub(crate) fn from_paths(voice: &Path, keypad_ebd: Option<&Path>) -> io::Result<Self> {
         let keypad = match keypad_ebd {
             Some(p) => KeyPad::load(p)?,
@@ -135,12 +137,8 @@ impl Mirae2Engine {
         let voice_data = VoiceData::open(voice)?;
 
         let dict_load = |name: &str| -> io::Result<Dict> {
-            Dict::load(voice.join(name)).map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("{name}: {e}"),
-                )
-            })
+            Dict::load(voice.join(name))
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{name}: {e}")))
         };
         let colligation = dict_load("colligation.pkg")?;
         let user = dict_load("User.pkg")?;
@@ -175,7 +173,7 @@ impl Mirae2Engine {
         self.voice_info.entries.len()
     }
 
-/// Synthesize `text` to mono PCM samples (22050 Hz, s16le).
+    /// Synthesize `text` to mono PCM samples (22050 Hz, s16le).
     pub(crate) fn synthesize(&mut self, text: &str) -> io::Result<Vec<i16>> {
         let pcm_bytes = self.synthesize_bytes(text)?;
         let mut out = Vec::with_capacity(pcm_bytes.len() / 2);
@@ -287,7 +285,11 @@ impl Mirae2Engine {
         let mut out = Vec::new();
         render::render_units(&mut self.voice_data, &units, &mut out, self.cfg.random_mode)?;
         if self.debug_log {
-            eprintln!("[mirae2-tts] render out.len={} units={}", out.len(), units.len());
+            eprintln!(
+                "[mirae2-tts] render out.len={} units={}",
+                out.len(),
+                units.len()
+            );
         }
         Ok(out)
     }
@@ -541,7 +543,7 @@ impl Mirae2Engine {
         }
     }
 
-/// G2P for one word token -> prosody records (dictionary pipeline + postprocess).
+    /// G2P for one word token -> prosody records (dictionary pipeline + postprocess).
     fn word_to_records(
         &self,
         dicts: &G2pDicts,
@@ -585,12 +587,11 @@ impl Mirae2Engine {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct TtsConfig {
     /// Output sample rate in Hz (default 22050; original speed 50 × 441).
     pub sample_rate: u32,
-/// Legacy sentence-end pause in samples (accepted for compatibility, not applied).
+    /// Legacy sentence-end pause in samples (accepted for compatibility, not applied).
     pub sentence_pause: i16,
     pub log_progress: bool,
 }
@@ -626,7 +627,7 @@ fn find_keypad_ebd(voice_dir: &Path, voice: &Path) -> Option<std::path::PathBuf>
 }
 
 impl TtsEngine {
-/// Initialize the engine from `voice_dir` (voice dir, or install root with `Voice/`).
+    /// Initialize the engine from `voice_dir` (voice dir, or install root with `Voice/`).
     pub fn new<P: AsRef<Path>>(voice_dir: P, config: TtsConfig) -> io::Result<Self> {
         let voice_dir = voice_dir.as_ref();
         let voice: std::path::PathBuf = if voice_dir.join("VoiceInfo.pkg").exists() {
@@ -783,4 +784,3 @@ mod api_tests {
         assert_eq!(cfg.sample_rate / 441, 50);
     }
 }
-

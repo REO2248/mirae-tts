@@ -432,4 +432,3 @@ fn parse_sub(data: &[u8], mut o: usize, rec_size: usize) -> Result<(SubStruct, u
         o,
     ))
 }
-

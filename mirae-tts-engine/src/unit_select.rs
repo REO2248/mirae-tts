@@ -8,7 +8,6 @@ use crate::tables::{
 };
 use crate::voice_info::{VoiceInfo, VoiceInfoEntry};
 
-
 pub fn is_pause(hi10: u16, low5: u16) -> bool {
     ((hi10 == 2 || hi10 == 0xe || hi10 == 0x12 || hi10 == 0x1b)
         && (low5 == 1 || low5 == 4 || low5 == 0x12))
@@ -112,7 +111,6 @@ fn flag_c(low5: usize) -> i32 {
     PHON_CLASS_FLAG_C[low5 & 0x1f]
 }
 
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UnitRequest {
     pub cur: u16,
@@ -137,7 +135,6 @@ impl UnitRequest {
         self.pitch as i16 as i32
     }
 }
-
 
 fn score_left(
     target_prev: u16,
@@ -348,7 +345,6 @@ fn score_right(
     }
 }
 
-
 pub fn duration_for(class: u8, values: &[u16; 4], enabled: &[bool; 4]) -> u16 {
     match class % 10 {
         1 => {
@@ -382,7 +378,6 @@ pub fn duration_for(class: u8, values: &[u16; 4], enabled: &[bool; 4]) -> u16 {
         _ => 0,
     }
 }
-
 
 pub const BOUNDARY_CODE: u16 = 0x6EB3;
 
@@ -520,8 +515,24 @@ impl<'a> UnitSelector<'a> {
             if std::env::var("MIRAE_SCAN_DEBUG").is_ok() {
                 eprintln!(
                     "[scan] req=({:04x},{:04x},{:04x}) cls={:02x} pitch={} wp={} wn={} row={} | cand woff={} eprev={:04x} enext={:04x} epitch={} ewlen={} ecls={:02x} i18={} i12={} cost={} score={}",
-                    req.prev, req.cur, req.next, req.class, req.pitch, w_prev, w_next, tone_row,
-                    e.woff, e.phone_prev, e.phone_next, pitch, wlen, e.classcode & 0xff, i18, i12, cost, s
+                    req.prev,
+                    req.cur,
+                    req.next,
+                    req.class,
+                    req.pitch,
+                    w_prev,
+                    w_next,
+                    tone_row,
+                    e.woff,
+                    e.phone_prev,
+                    e.phone_next,
+                    pitch,
+                    wlen,
+                    e.classcode & 0xff,
+                    i18,
+                    i12,
+                    cost,
+                    s
                 );
             }
             let pd = (req.pitch_signed() - pitch).abs();
@@ -574,10 +585,7 @@ impl<'a> UnitSelector<'a> {
                 } else {
                     BOUNDARY_CODE
                 },
-                next: if idx + 1 < records.len()
-                    && rec.marker != MARKER_SENTENCE_END
-                    && tone <= 1
-                {
+                next: if idx + 1 < records.len() && rec.marker != MARKER_SENTENCE_END && tone <= 1 {
                     records[idx + 1].code
                 } else {
                     BOUNDARY_CODE
@@ -797,7 +805,6 @@ fn set_active_pause(u: &mut UnitSelection, pause: i16) {
     }
 }
 
-
 fn weight_prev(req: &UnitRequest, norm_class: u8) -> u8 {
     let prev_hi = req.prev >> 10;
     let cur_lo = (req.cur & 0x1f) as usize;
@@ -988,4 +995,3 @@ mod tests {
         assert_eq!(score_right(0x6d80, 0x6d86, 0x6c80, 0x6d86, 3, 40, true), 50);
     }
 }
-

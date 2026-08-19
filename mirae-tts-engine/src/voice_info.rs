@@ -177,4 +177,3 @@ mod tests {
         assert!(VoiceInfo::from_bytes(&[1, 0, 0, 0]).is_err());
     }
 }
-

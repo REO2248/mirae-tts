@@ -4,7 +4,7 @@
 //! sentence-boundary linking per the original pump.
 //! Normalization (DAT_0048bd40): TONE_CLASS_MAP rows; canonical classes
 //! {0,1,3,4,10,11,13,14,30,31,33,34,40,41,43,44}.
-use crate::record::{ProsodyRecord, MARKER_SENTENCE_END, MARKER_SPECIAL};
+use crate::record::{MARKER_SENTENCE_END, MARKER_SPECIAL, ProsodyRecord};
 
 pub const TONE_CLASS_MAP: [u8; 256] = [
     40, 30, 41, 31, 10, 11, 0, 1, 3, 13, 4, 14, 33, 43, 34, 44, 4, 14, 3, 13, 1, 11, 0, 10, 30, 31,
@@ -99,20 +99,21 @@ pub fn apply_sandhi(buf: &mut Vec<ProsodyRecord>, sentence: &mut [ProsodyRecord]
         return;
     }
 
-    let prev_non_pause = |i: usize, buf: &[ProsodyRecord], sentence: &[ProsodyRecord]| -> (usize, u8) {
-        if i == 0 {
-            return (ac - 1, buf[ac - 1].tone_class % 10);
-        }
-        let mut j = i - 1;
-        while j > 0 && sentence[j].code == 0x1486 {
-            j -= 1;
-        }
-        if j == 0 && sentence[j].code == 0x1486 {
-            (ac - 1, buf[ac - 1].tone_class % 10)
-        } else {
-            (j, sentence[j].tone_class % 10)
-        }
-    };
+    let prev_non_pause =
+        |i: usize, buf: &[ProsodyRecord], sentence: &[ProsodyRecord]| -> (usize, u8) {
+            if i == 0 {
+                return (ac - 1, buf[ac - 1].tone_class % 10);
+            }
+            let mut j = i - 1;
+            while j > 0 && sentence[j].code == 0x1486 {
+                j -= 1;
+            }
+            if j == 0 && sentence[j].code == 0x1486 {
+                (ac - 1, buf[ac - 1].tone_class % 10)
+            } else {
+                (j, sentence[j].tone_class % 10)
+            }
+        };
     let first = if ac == 0 { 1 } else { 0 };
     for i in first..n {
         if sentence[i].code == 0x1486 {
@@ -283,4 +284,3 @@ mod tests {
         assert_eq!(buf[0].tone_class, 4 % 10 + 0x28);
     }
 }
-

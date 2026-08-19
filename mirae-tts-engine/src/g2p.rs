@@ -7,9 +7,8 @@ pub mod g2p_dict {
     use std::sync::OnceLock;
 
     use crate::connect::ConnectMatrix;
-    use crate::dict::{key_from_syllables, reverse_key, Dict, SubARecord};
+    use crate::dict::{Dict, SubARecord, key_from_syllables, reverse_key};
     use crate::record::ProsodyRecord;
-
 
     pub const MAX_CANDIDATES: usize = 214;
 
@@ -35,7 +34,6 @@ pub mod g2p_dict {
     pub const PROSODY_W2: f32 = 0.5;
     pub const PROSODY_W3: f32 = 0.99;
     pub const ACCENT_RANGE: (f32, f32) = (1.86, 2.9);
-
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct Reading {
@@ -90,7 +88,6 @@ pub mod g2p_dict {
         pub connect: &'a ConnectMatrix,
     }
 
-
     fn unicode_syllable_to_jamo(uni: u32) -> Option<(u8, u8, u8)> {
         if !(0xAC00..=0xD7A3).contains(&uni) {
             return None;
@@ -144,14 +141,22 @@ pub mod g2p_dict {
     }
 
     /// Unicode: ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ
-    pub(crate) const INIT_KP_TO_STD: [u8; 19] = [0, 2, 3, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18, 1, 4, 8, 10, 13, 11];
+    pub(crate) const INIT_KP_TO_STD: [u8; 19] = [
+        0, 2, 3, 5, 6, 7, 9, 12, 14, 15, 16, 17, 18, 1, 4, 8, 10, 13, 11,
+    ];
 
-    pub(crate) const INIT_STD_TO_KP: [u8; 19] = [0, 13, 1, 2, 14, 3, 4, 5, 15, 6, 16, 18, 7, 17, 8, 9, 10, 11, 12];
+    pub(crate) const INIT_STD_TO_KP: [u8; 19] = [
+        0, 13, 1, 2, 14, 3, 4, 5, 15, 6, 16, 18, 7, 17, 8, 9, 10, 11, 12,
+    ];
 
     /// Unicode: ㅏㅐㅑㅒㅓㅔㅕㅖㅗㅘㅙㅚㅛㅜㅝㅞㅟㅠㅡㅢㅣ
-    pub(crate) const MED_KP_TO_STD: [u8; 21] = [0, 2, 4, 6, 8, 12, 13, 17, 18, 20, 1, 3, 5, 7, 9, 10, 11, 14, 15, 16, 19];
+    pub(crate) const MED_KP_TO_STD: [u8; 21] = [
+        0, 2, 4, 6, 8, 12, 13, 17, 18, 20, 1, 3, 5, 7, 9, 10, 11, 14, 15, 16, 19,
+    ];
 
-    pub(crate) const MED_STD_TO_KP: [u8; 21] = [0, 10, 1, 11, 2, 12, 3, 13, 4, 14, 15, 16, 5, 6, 17, 18, 19, 7, 8, 20, 9];
+    pub(crate) const MED_STD_TO_KP: [u8; 21] = [
+        0, 10, 1, 11, 2, 12, 3, 13, 4, 14, 15, 16, 5, 6, 17, 18, 19, 7, 8, 20, 9,
+    ];
 
     fn jamo_to_kps_syllable(init: u8, med: u8, fin: u8) -> Option<u16> {
         let init_kp = INIT_STD_TO_KP[(init - 1) as usize] as usize;
@@ -358,11 +363,7 @@ pub mod g2p_dict {
         if fin == 0 {
             27
         } else {
-            final_class_from_mask(
-                (init1 - 1) as usize,
-                (med1 - 1) as usize,
-                fin as usize,
-            ) as u8
+            final_class_from_mask((init1 - 1) as usize, (med1 - 1) as usize, fin as usize) as u8
         }
     }
 
@@ -439,7 +440,6 @@ pub mod g2p_dict {
     pub fn phoneme_codes_from_syllables(codes: &[u16]) -> Vec<u16> {
         codes.iter().map(|&c| to_phoneme_code(c)).collect()
     }
-
 
     pub fn split_finals(codes: &[u16]) -> Vec<u16> {
         let mut out = Vec::with_capacity(codes.len() + 4);
@@ -619,7 +619,6 @@ pub mod g2p_dict {
         }
     }
 
-
     pub fn nonreg_lookup(dicts: &G2pDicts, word: &[u8]) -> Option<NonRegHit> {
         let codes = kps_bytes_to_codes(word)?;
         let key = key_from_syllables(&codes)?;
@@ -641,12 +640,33 @@ pub mod g2p_dict {
         })
     }
 
-
-    pub fn morph_type_code(morph_type: u8) -> Option<u16> {
-        if !(MORPH_TYPE_BASE..=0x1f).contains(&morph_type) {
-            return None;
-        }
-        Some(0x8000 | (0x30 + (morph_type - MORPH_TYPE_BASE)) as u16)
+    pub fn morph_type_code(morph_type: u8) -> Option<&'static [u16]> {
+        const SUFFIXES: &[&[u16]] = &[
+            &[0x8035],                 // 0x14
+            &[0x8033],                 // 0x15
+            &[0x8039],                 // 0x16
+            &[0x8021],                 // 0x17
+            &[0x8023],                 // 0x18
+            &[0x803b],                 // 0x19
+            &[0x8025],                 // 0x1a
+            &[0x801d],                 // 0x1b
+            &[0x8027],                 // 0x1c
+            &[0x8029],                 // 0x1d
+            &[0x8037, 0x801d],         // 0x1e
+            &[0x8031, 0x8027, 0x801d], // 0x1f
+            &[0x800f],                 // 0x20
+            &[0x8019],                 // 0x21
+            &[0x801b],                 // 0x22
+            &[0x800d],                 // 0x23
+            &[0x802d],                 // 0x24
+            &[0x802f],                 // 0x25
+            &[0x8011],                 // 0x26
+            &[0x8013],                 // 0x27
+            &[0x8015],                 // 0x28
+            &[0x8017],                 // 0x29
+        ];
+        let idx = morph_type.checked_sub(MORPH_TYPE_BASE)? as usize;
+        SUFFIXES.get(idx).copied()
     }
 
     pub fn conjects_verify(
@@ -656,16 +676,77 @@ pub mod g2p_dict {
         right: &[u16],
         right_type: u8,
     ) -> bool {
-        let Some(lc) = morph_type_code(left_type) else {
+        // Try new table suffix first, then fall back to old linear formula for compatibility with older Conjects.pkg builds
+        fn try_suffix(
+            dicts: &G2pDicts,
+            left: &[u16],
+            left_type: u8,
+            right: &[u16],
+            right_type: u8,
+            use_old: bool,
+        ) -> bool {
+            let lcs: Vec<u16> = if use_old {
+                if !(MORPH_TYPE_BASE..=0x1f).contains(&left_type) {
+                    return false;
+                }
+                vec![0x8000 | (0x30 + (left_type - MORPH_TYPE_BASE)) as u16]
+            } else {
+                let Some(s) = morph_type_code(left_type) else {
+                    return false;
+                };
+                s.to_vec()
+            };
+            let rcs: Vec<u16> = if use_old {
+                if !(MORPH_TYPE_BASE..=0x1f).contains(&right_type) {
+                    return false;
+                }
+                vec![0x8000 | (0x30 + (right_type - MORPH_TYPE_BASE)) as u16]
+            } else {
+                let Some(s) = morph_type_code(right_type) else {
+                    return false;
+                };
+                s.to_vec()
+            };
+            let mut lk = left.to_vec();
+            lk.extend(lcs);
+            let mut rk = right.to_vec();
+            rk.extend(rcs);
+            let Some(lkey) = key_from_syllables(&lk) else {
+                return false;
+            };
+            let Some(rkey) = key_from_syllables(&rk) else {
+                return false;
+            };
+            let Some(le) = dicts.conjects.lookup(&lkey) else {
+                return false;
+            };
+            let Some(re) = dicts.conjects.lookup(&rkey) else {
+                return false;
+            };
+            let xl = le.x as usize;
+            let xr = re.x as usize;
+            let Some(row) = dicts.connect.row(xl) else {
+                return false;
+            };
+            let v = row.get(xr).copied().unwrap_or(0);
+            v != 0
+        }
+        if try_suffix(dicts, left, left_type, right, right_type, false) {
+            return true;
+        }
+        if try_suffix(dicts, left, left_type, right, right_type, true) {
+            return true;
+        }
+        let Some(lcs) = morph_type_code(left_type) else {
             return false;
         };
-        let Some(rc) = morph_type_code(right_type) else {
+        let Some(rcs) = morph_type_code(right_type) else {
             return false;
         };
         let mut lk = left.to_vec();
-        lk.push(lc);
+        lk.extend_from_slice(lcs);
         let mut rk = right.to_vec();
-        rk.push(rc);
+        rk.extend_from_slice(rcs);
         let Some(lkey) = key_from_syllables(&lk) else {
             return false;
         };
@@ -689,7 +770,6 @@ pub mod g2p_dict {
         }
         false
     }
-
 
     pub fn context_check_skeleton(codes: &[u16]) -> bool {
         let _ = codes;
@@ -717,11 +797,7 @@ pub mod g2p_dict {
             segments.push(w.to_vec());
             all.extend(readings);
         }
-        if all.is_empty() {
-            None
-        } else {
-            Some(all)
-        }
+        if all.is_empty() { None } else { Some(all) }
     }
 
     pub fn word_g2p(dicts: &G2pDicts, word: &[u8]) -> Vec<Reading> {
@@ -743,7 +819,6 @@ pub mod g2p_dict {
         }
         vec![Reading::fallback(word)]
     }
-
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum WordFinalTone {
@@ -857,8 +932,21 @@ pub mod g2p_dict {
             return;
         }
         const PREFIXES: &[&str] = &[
-            "리용음성", "문화적", "고전적", "조선말", "전자", "문학", "충족", "집필", "우리", "전문",
-            "내용", "조선", "상식", "음성", "본문",
+            "리용음성",
+            "문화적",
+            "고전적",
+            "조선말",
+            "전자",
+            "문학",
+            "충족",
+            "집필",
+            "우리",
+            "전문",
+            "내용",
+            "조선",
+            "상식",
+            "음성",
+            "본문",
         ];
         for m in PREFIXES {
             if m.len() < text.len() && text.starts_with(m) {
@@ -874,7 +962,9 @@ pub mod g2p_dict {
         let text = crate::kps_decode(&rec.spelling);
         let m = match text.as_str() {
             "보급에서" | "검색을" => 3,
-            "충족시키며" | "열람과" | "내용구성은" | "우리나라에서" | "특징은" => 5,
+            "충족시키며" | "열람과" | "내용구성은" | "우리나라에서" | "특징은" => {
+                5
+            }
             _ => return,
         };
         if let Some(last) = rec.phoneme_markers.last_mut() {
@@ -889,7 +979,6 @@ pub mod g2p_dict {
             rec.phoneme_markers.resize(rec.phoneme_count, 0);
         }
     }
-
 
     pub const S_FIN_CHARS: [char; 28] = [
         '\0', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ',
@@ -1046,7 +1135,11 @@ pub mod g2p_dict {
                     continue;
                 }
                 if matches!(cls1, 2 | 6 | 14) && matches!(cls2, 0 | 27) {
-                    let f = if fins[i] != '\0' { fins[i] } else { class_to_final(cls1) };
+                    let f = if fins[i] != '\0' {
+                        fins[i]
+                    } else {
+                        class_to_final(cls1)
+                    };
                     codes[i + 1] = crate::g2p::make_phoneme(cls2, med2, final_to_init(f));
                     codes[i] = crate::g2p::make_phoneme(27, med1, init1);
                     continue;
@@ -1059,10 +1152,12 @@ pub mod g2p_dict {
                     codes[i + 2] = crate::g2p::make_phoneme(c3, m3, tense_init(i3));
                 }
             }
-            if init2 == 18
-                && ((cls2 == 27 && is_func_medial(med2)) || (cls2 == 6 && med2 == 8))
-            {
-                let f = if fins[i] != '\0' { fins[i] } else { class_to_final(cls1) };
+            if init2 == 18 && ((cls2 == 27 && is_func_medial(med2)) || (cls2 == 6 && med2 == 8)) {
+                let f = if fins[i] != '\0' {
+                    fins[i]
+                } else {
+                    class_to_final(cls1)
+                };
                 codes[i + 1] = crate::g2p::make_phoneme(cls2, med2, final_to_init(f));
                 codes[i] = crate::g2p::make_phoneme(27, med1, init1);
                 continue;
@@ -1093,7 +1188,6 @@ pub mod g2p_dict {
             }
         }
     }
-
 
     fn sandhi_hook_linking(prev: &WordRecord, next: &WordRecord) -> u8 {
         let _ = (prev, next);
@@ -1237,8 +1331,48 @@ pub mod g2p_dict {
         stage4_cross_word_sandhi(records);
         stage7_prosody(records);
         stage8_final_markers(records);
+        stage9_post_loop_propagation(records);
     }
 
+    pub fn stage9_post_loop_propagation(records: &mut [WordRecord]) {
+        let n = records.len();
+        if n == 0 {
+            return;
+        }
+        for rec in records.iter_mut() {
+            if rec.phoneme_markers.is_empty() {
+                continue;
+            }
+            if rec.phoneme_markers[0] & 0x80 == 0 {
+                continue;
+            }
+            for m in rec.phoneme_markers.iter_mut() {
+                if *m & 0x40 == 0 {
+                    *m |= 0x80;
+                }
+            }
+        }
+        let last_boundary = records
+            .iter()
+            .rposition(|r| r.final_marker != 0 && r.final_marker != 1);
+        if let Some(boundary_idx) = last_boundary {
+            for i in (boundary_idx + 1)..n {
+                for m in records[i].phoneme_markers.iter_mut() {
+                    *m |= 0x80;
+                }
+            }
+            return;
+        }
+        let mut cum = 0usize;
+        let mut idx = n;
+        while cum < PROPAGATE_BACK && idx > 0 {
+            idx -= 1;
+            for m in records[idx].phoneme_markers.iter_mut() {
+                *m |= 0x80;
+            }
+            cum += records[idx].phoneme_count;
+        }
+    }
 
     pub fn record_to_prosody(rec: &WordRecord) -> Vec<ProsodyRecord> {
         let mut out = Vec::with_capacity(rec.phoneme_codes.len());
@@ -1256,6 +1390,34 @@ pub mod g2p_dict {
     }
 }
 
+pub fn number_unit_lookup(current: &[u8], next: &[u8]) -> Option<&'static [u8]> {
+    if current.is_empty() || next.is_empty() {
+        return None;
+    }
+    let has_digit = current.iter().any(|b| b.is_ascii_digit());
+    let is_korean = !current.is_empty() && current[0] >= 0x80;
+    if !(has_digit || is_korean) {
+        return None;
+    }
+    unit_reading(next)
+}
+
+pub fn number_unit_reading(current: &[u8], next: &[u8]) -> Option<Vec<u16>> {
+    let reading = number_unit_lookup(current, next)?;
+    // Check current is a recognizable number form
+    let all_digits = current.iter().all(|b| b.is_ascii_digit());
+    let has_dot = current.contains(&b'.');
+    let is_korean_num_word = !current.is_empty() && current[0] >= 0x80;
+    if !(all_digits || has_dot || is_korean_num_word) {
+        return None;
+    }
+    // Convert unit KPS reading to phoneme codes (reuse kps code table)
+    // Use the same path as sino_integer_codes but for unit reading bytes
+    // Unit reading is already KPS bytes -> convert via kps_bytes_to_codes -> to_phoneme
+    use crate::g2p::g2p_dict::{kps_bytes_to_codes, to_phoneme_code};
+    let codes = kps_bytes_to_codes(reading)?;
+    Some(codes.iter().map(|&c| to_phoneme_code(c)).collect())
+}
 
 pub fn split_phoneme(code: u16) -> (u8, u8, u8) {
     (
@@ -1270,8 +1432,7 @@ pub fn make_phoneme(class: u8, medial: u8, initial: u8) -> u16 {
 }
 
 pub const FINAL_TO_CLASS: [u8; 28] = [
-    0, 2, 2, 5, 6, 0, 15, 14, 15, 6, 6, 15, 15, 14, 5, 15, 5, 18, 0, 5, 15, 5, 0, 5, 27, 5, 5,
-    0,
+    0, 2, 2, 5, 6, 0, 15, 14, 15, 6, 6, 15, 15, 14, 5, 15, 5, 18, 0, 5, 15, 5, 0, 5, 27, 5, 5, 0,
 ];
 
 pub fn apply_final_class(code: u16) -> u16 {
@@ -1312,14 +1473,15 @@ pub fn is_pause_code(code: u16) -> bool {
 }
 
 pub fn is_real_phoneme(class: u8, low5: u8) -> bool {
-    !matches!(low5, 1 | 4 | 6 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 16 | 17 | 18)
-        && !(low5 == 3 && class == 6)
+    !matches!(
+        low5,
+        1 | 4 | 6 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 16 | 17 | 18
+    ) && !(low5 == 3 && class == 6)
 }
 
 pub fn is_real_phoneme_code(code: u16) -> bool {
     is_real_phoneme(((code >> 10) & 0x3f) as u8, (code & 0x1f) as u8)
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HardReading {
@@ -1345,80 +1507,524 @@ pub struct ExceptionRule {
 }
 
 pub static EXCEPTION_TABLE: [ExceptionRule; 60] = [
-    ExceptionRule { input: &[0xb1, 0xfd, 0xb0, 0xa1], out: ExceptionOutcome::Lookup(&[0xb1, 0xfd, 0xb0, 0xa1, 0xca, 0xad]) },
-    ExceptionRule { input: &[0xb4, 0xdd, 0xb0, 0xd6], out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xcb, 0xcb, 0xb0, 0xd6]) },
-    ExceptionRule { input: &[0xc3, 0xcd, 0xba, 0xb7], out: ExceptionOutcome::Lookup(&[0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7]) },
-    ExceptionRule { input: &[0xcb, 0xce, 0xb8, 0xc9, 0xc3, 0xf9, 0xc3, 0xcd, 0xba, 0xb7], out: ExceptionOutcome::Lookup(&[0xcb, 0xce, 0xb8, 0xc9, 0xc3, 0xf9, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7]) },
-    ExceptionRule { input: &[0xbd, 0xdb, 0xbc, 0xbf, 0xc3, 0xcd], out: ExceptionOutcome::Lookup(&[0xbd, 0xdb, 0xbc, 0xbf, 0xc2, 0xd7, 0xca, 0xde]) },
-    ExceptionRule { input: &[0xbc, 0xad, 0xc3, 0xcd], out: ExceptionOutcome::Lookup(&[0xbc, 0xad, 0xc2, 0xd7, 0xca, 0xde]) },
-    ExceptionRule { input: &[0xbc, 0xad, 0xc3, 0xcd, 0xbc, 0xec], out: ExceptionOutcome::Lookup(&[0xbc, 0xad, 0xc2, 0xd7, 0xca, 0xde, 0xbc, 0xec]) },
-    ExceptionRule { input: &[0xb6, 0xed, 0xb1, 0xfd], out: ExceptionOutcome::Lookup(&[0xb6, 0xed, 0xb1, 0xfd, 0xca, 0xad]) },
-    ExceptionRule { input: &[0xb9, 0xbe, 0xc3, 0xcd], out: ExceptionOutcome::Lookup(&[0xb9, 0xbe, 0xc2, 0xd7, 0xca, 0xde]) },
-    ExceptionRule { input: &[0xb9, 0xbe, 0xc2, 0xd7, 0xca, 0xde], out: ExceptionOutcome::Lookup(&[0xb9, 0xbe, 0xc2, 0xd7, 0xca, 0xde]) },
-    ExceptionRule { input: &[0xb4, 0xdd, 0xc3, 0xcd, 0xba, 0xb7, 0xb4, 0xc7, 0xbc, 0xe8], out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7, 0xb4, 0xc7, 0xbc, 0xe8]) },
-    ExceptionRule { input: &[0xb4, 0xdd, 0xc3, 0xcd], out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde]) },
-    ExceptionRule { input: &[0xb4, 0xdd, 0xc3, 0xcd, 0xba, 0xb7], out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7]) },
-    ExceptionRule { input: &[0xb8, 0xf5, 0xbc, 0xac, 0xcb, 0xcb], out: ExceptionOutcome::Lookup(&[0xb8, 0xf3, 0xb2, 0xf7, 0xbc, 0xac, 0xcb, 0xcb]) },
-    ExceptionRule { input: &[0xb1, 0xfd, 0xcc, 0xae], out: ExceptionOutcome::Lookup(&[0xb1, 0xfd, 0xca, 0xef, 0xca, 0xad]) },
-    ExceptionRule { input: &[0xb4, 0xae, 0xb5, 0xd8, 0xca, 0xbf], out: ExceptionOutcome::Lookup(&[0xb4, 0xae, 0xb6, 0xae, 0xca, 0xde, 0xca, 0xbf]) },
-    ExceptionRule { input: &[0xc0, 0xb2], out: ExceptionOutcome::Lookup(&[0xc0, 0xb0, 0xb2, 0xf7]) },
-    ExceptionRule { input: &[0xca, 0xf1], out: ExceptionOutcome::Lookup(&[0xca, 0xef, 0xb2, 0xf7]) },
-    ExceptionRule { input: &[0xc3, 0xcd, 0xca, 0xbf], out: ExceptionOutcome::Lookup(&[0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf]) },
-    ExceptionRule { input: &[0xc3, 0xcd, 0xb4, 0xaa], out: ExceptionOutcome::Lookup(&[0xc2, 0xd7, 0xca, 0xde, 0xb4, 0xaa]) },
-    ExceptionRule { input: &[0xb4, 0xdd, 0xc3, 0xcd, 0xca, 0xbf], out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf]) },
-    ExceptionRule { input: &[0xcc, 0xae, 0xba, 0xb7], out: ExceptionOutcome::Lookup(&[0xca, 0xef, 0xca, 0xad, 0xba, 0xb7]) },
-    ExceptionRule { input: &[0xcc, 0xae, 0xb4, 0xaa], out: ExceptionOutcome::Lookup(&[0xca, 0xef, 0xca, 0xad, 0xb4, 0xaa]) },
-    ExceptionRule { input: &[0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf], out: ExceptionOutcome::Lookup(&[0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf]) },
-    ExceptionRule { input: &[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf], out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf]) },
-    ExceptionRule { input: &[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7], out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7]) },
-    ExceptionRule { input: &[0xca, 0xef, 0xca, 0xad, 0xb4, 0xaa], out: ExceptionOutcome::Lookup(&[0xca, 0xef, 0xca, 0xad, 0xb4, 0xaa]) },
-    ExceptionRule { input: &[0xbb, 0xf4, 0xb4, 0xaa], out: ExceptionOutcome::Hard(HardReading { main: &[0xbb, 0xf4], sub: &[0xb4, 0xaa], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xa1, 0xbc, 0xea], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xa1, 0xbc, 0xe8], sub: &[0xb2, 0xf7], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xa1, 0xbc, 0xe8, 0xb2, 0xf7], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xa1, 0xbc, 0xe8], sub: &[0xb2, 0xf7], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb3, 0xad, 0xb6, 0xb0], out: ExceptionOutcome::Hard(HardReading { main: &[0xb3, 0xad, 0xb6, 0xae], sub: &[0xa4, 0xa2], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xa1, 0xb7, 0xb2], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xa1], sub: &[0xb7, 0xb2], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xbc, 0xc2, 0xb5, 0xb9], out: ExceptionOutcome::Hard(HardReading { main: &[0xbc, 0xc2], sub: &[0xb5, 0xb9], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xa1, 0xb7, 0xb2, 0xba, 0xb7], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xa1], sub: &[0xb7, 0xb2, 0xba, 0xb7], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xa1, 0xb4, 0xaa], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xa1], sub: &[0xb4, 0xaa], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xcb, 0xcb, 0xb5, 0xcf], out: ExceptionOutcome::Hard(HardReading { main: &[0xcb, 0xcb, 0xb5, 0xd6], sub: &[0xa4, 0xa2], sub2: None, marker: 5, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xc2, 0xd9, 0xb4, 0xe7], out: ExceptionOutcome::Hard(HardReading { main: &[0xc2, 0xd7], sub: &[0xa4, 0xa2, 0xb4, 0xe7], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xc2, 0xd7, 0xca, 0xde], out: ExceptionOutcome::Hard(HardReading { main: &[0xc2, 0xd7], sub: &[0xca, 0xde], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb8, 0xf6], out: ExceptionOutcome::Hard(HardReading { main: &[0xb8, 0xf3], sub: &[0xa4, 0xa4], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xa5], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xa1], sub: &[0xa4, 0xa4], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb2, 0xa4], out: ExceptionOutcome::Hard(HardReading { main: &[0xb1, 0xfd], sub: &[0xa4, 0xa4], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xbd, 0xd5], out: ExceptionOutcome::Hard(HardReading { main: &[0xbd, 0xd3], sub: &[0xa4, 0xa2], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb8, 0xf3, 0xbb, 0xa6], out: ExceptionOutcome::Hard(HardReading { main: &[0xb8, 0xf3, 0xbb, 0xa4], sub: &[0xa4, 0xa2], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xa1, 0xbc, 0xe8], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xa1], sub: &[0xbc, 0xe8], sub2: None, marker: 4, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb3, 0xad, 0xb0, 0xa1], out: ExceptionOutcome::Hard(HardReading { main: &[0xb3, 0xad], sub: &[0xb0, 0xa1], sub2: None, marker: 2, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb4, 0xdd, 0xbc, 0xe8, 0xb6, 0xa6], out: ExceptionOutcome::Hard(HardReading { main: &[0xb4, 0xdd, 0xbc, 0xe8], sub: &[0xb6, 0xa6], sub2: None, marker: 1, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xba, 0xa8, 0xb1, 0xe1], out: ExceptionOutcome::Hard(HardReading { main: &[0xba, 0xa8], sub: &[0xb1, 0xe1], sub2: None, marker: 1, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xfb, 0xb6, 0xa6], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xfb], sub: &[0xb6, 0xa6], sub2: None, marker: 2, morphemes: 2, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb4, 0xdd, 0xc3, 0xcd, 0xba, 0xb7, 0xb2, 0xf7], out: ExceptionOutcome::Hard(HardReading { main: &[0xb4, 0xdd, 0xc2, 0xd7], sub: &[0xca, 0xde, 0xba, 0xb7], sub2: Some(&[0xb2, 0xf7]), marker: 4, morphemes: 3, f1389: 0x15, f1400: 0x91 }) },
-    ExceptionRule { input: &[0xca, 0xef, 0xb2, 0xf7], out: ExceptionOutcome::Hard(HardReading { main: &[0xca, 0xef, 0xb2, 0xf7], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xc0, 0xb0, 0xb2, 0xf7], out: ExceptionOutcome::Hard(HardReading { main: &[0xc0, 0xb0, 0xb2, 0xf7], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xcb, 0xfb, 0xb1, 0xe2, 0xb8, 0xf5, 0xb6, 0xf3], out: ExceptionOutcome::Hard(HardReading { main: &[0xcb, 0xfb, 0xb1, 0xe2, 0xb8, 0xf5, 0xb6, 0xf3], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb9, 0xdd, 0xb5, 0xfb, 0xbd, 0xc3], out: ExceptionOutcome::Hard(HardReading { main: &[0xb9, 0xdd, 0xb5, 0xfb, 0xbd, 0xc3], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb1, 0xd7, 0xb7, 0xe1, 0xca, 0xbf], out: ExceptionOutcome::Hard(HardReading { main: &[0xb1, 0xd7, 0xb7, 0xe1, 0xca, 0xbf], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb1, 0xd7, 0xb7, 0xe1, 0xb8, 0xf2], out: ExceptionOutcome::Hard(HardReading { main: &[0xb1, 0xd7, 0xb7, 0xe1, 0xb8, 0xf2], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xbc, 0xd6, 0xb7, 0xce], out: ExceptionOutcome::Hard(HardReading { main: &[0xbc, 0xd6, 0xb7, 0xce], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb6, 0xf0], out: ExceptionOutcome::Hard(HardReading { main: &[0xb6, 0xf0], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xbd, 0xbf, 0xec], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xbd, 0xbf, 0xec], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb0, 0xdb, 0xb0, 0xfa], out: ExceptionOutcome::Hard(HardReading { main: &[0xb0, 0xdb, 0xb0, 0xfa], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
-    ExceptionRule { input: &[0xb4, 0xf5, 0xb6, 0xe7, 0xbe, 0xe0], out: ExceptionOutcome::Hard(HardReading { main: &[0xb4, 0xf5, 0xb6, 0xe7, 0xbe, 0xe0], sub: &[], sub2: None, marker: 0, morphemes: 1, f1389: 0, f1400: 0 }) },
+    ExceptionRule {
+        input: &[0xb1, 0xfd, 0xb0, 0xa1],
+        out: ExceptionOutcome::Lookup(&[0xb1, 0xfd, 0xb0, 0xa1, 0xca, 0xad]),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xdd, 0xb0, 0xd6],
+        out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xcb, 0xcb, 0xb0, 0xd6]),
+    },
+    ExceptionRule {
+        input: &[0xc3, 0xcd, 0xba, 0xb7],
+        out: ExceptionOutcome::Lookup(&[0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7]),
+    },
+    ExceptionRule {
+        input: &[0xcb, 0xce, 0xb8, 0xc9, 0xc3, 0xf9, 0xc3, 0xcd, 0xba, 0xb7],
+        out: ExceptionOutcome::Lookup(&[
+            0xcb, 0xce, 0xb8, 0xc9, 0xc3, 0xf9, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7,
+        ]),
+    },
+    ExceptionRule {
+        input: &[0xbd, 0xdb, 0xbc, 0xbf, 0xc3, 0xcd],
+        out: ExceptionOutcome::Lookup(&[0xbd, 0xdb, 0xbc, 0xbf, 0xc2, 0xd7, 0xca, 0xde]),
+    },
+    ExceptionRule {
+        input: &[0xbc, 0xad, 0xc3, 0xcd],
+        out: ExceptionOutcome::Lookup(&[0xbc, 0xad, 0xc2, 0xd7, 0xca, 0xde]),
+    },
+    ExceptionRule {
+        input: &[0xbc, 0xad, 0xc3, 0xcd, 0xbc, 0xec],
+        out: ExceptionOutcome::Lookup(&[0xbc, 0xad, 0xc2, 0xd7, 0xca, 0xde, 0xbc, 0xec]),
+    },
+    ExceptionRule {
+        input: &[0xb6, 0xed, 0xb1, 0xfd],
+        out: ExceptionOutcome::Lookup(&[0xb6, 0xed, 0xb1, 0xfd, 0xca, 0xad]),
+    },
+    ExceptionRule {
+        input: &[0xb9, 0xbe, 0xc3, 0xcd],
+        out: ExceptionOutcome::Lookup(&[0xb9, 0xbe, 0xc2, 0xd7, 0xca, 0xde]),
+    },
+    ExceptionRule {
+        input: &[0xb9, 0xbe, 0xc2, 0xd7, 0xca, 0xde],
+        out: ExceptionOutcome::Lookup(&[0xb9, 0xbe, 0xc2, 0xd7, 0xca, 0xde]),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xdd, 0xc3, 0xcd, 0xba, 0xb7, 0xb4, 0xc7, 0xbc, 0xe8],
+        out: ExceptionOutcome::Lookup(&[
+            0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7, 0xb4, 0xc7, 0xbc, 0xe8,
+        ]),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xdd, 0xc3, 0xcd],
+        out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde]),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xdd, 0xc3, 0xcd, 0xba, 0xb7],
+        out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7]),
+    },
+    ExceptionRule {
+        input: &[0xb8, 0xf5, 0xbc, 0xac, 0xcb, 0xcb],
+        out: ExceptionOutcome::Lookup(&[0xb8, 0xf3, 0xb2, 0xf7, 0xbc, 0xac, 0xcb, 0xcb]),
+    },
+    ExceptionRule {
+        input: &[0xb1, 0xfd, 0xcc, 0xae],
+        out: ExceptionOutcome::Lookup(&[0xb1, 0xfd, 0xca, 0xef, 0xca, 0xad]),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xae, 0xb5, 0xd8, 0xca, 0xbf],
+        out: ExceptionOutcome::Lookup(&[0xb4, 0xae, 0xb6, 0xae, 0xca, 0xde, 0xca, 0xbf]),
+    },
+    ExceptionRule {
+        input: &[0xc0, 0xb2],
+        out: ExceptionOutcome::Lookup(&[0xc0, 0xb0, 0xb2, 0xf7]),
+    },
+    ExceptionRule {
+        input: &[0xca, 0xf1],
+        out: ExceptionOutcome::Lookup(&[0xca, 0xef, 0xb2, 0xf7]),
+    },
+    ExceptionRule {
+        input: &[0xc3, 0xcd, 0xca, 0xbf],
+        out: ExceptionOutcome::Lookup(&[0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf]),
+    },
+    ExceptionRule {
+        input: &[0xc3, 0xcd, 0xb4, 0xaa],
+        out: ExceptionOutcome::Lookup(&[0xc2, 0xd7, 0xca, 0xde, 0xb4, 0xaa]),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xdd, 0xc3, 0xcd, 0xca, 0xbf],
+        out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf]),
+    },
+    ExceptionRule {
+        input: &[0xcc, 0xae, 0xba, 0xb7],
+        out: ExceptionOutcome::Lookup(&[0xca, 0xef, 0xca, 0xad, 0xba, 0xb7]),
+    },
+    ExceptionRule {
+        input: &[0xcc, 0xae, 0xb4, 0xaa],
+        out: ExceptionOutcome::Lookup(&[0xca, 0xef, 0xca, 0xad, 0xb4, 0xaa]),
+    },
+    ExceptionRule {
+        input: &[0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf],
+        out: ExceptionOutcome::Lookup(&[0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf]),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf],
+        out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xca, 0xbf]),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7],
+        out: ExceptionOutcome::Lookup(&[0xb4, 0xdd, 0xc2, 0xd7, 0xca, 0xde, 0xba, 0xb7]),
+    },
+    ExceptionRule {
+        input: &[0xca, 0xef, 0xca, 0xad, 0xb4, 0xaa],
+        out: ExceptionOutcome::Lookup(&[0xca, 0xef, 0xca, 0xad, 0xb4, 0xaa]),
+    },
+    ExceptionRule {
+        input: &[0xbb, 0xf4, 0xb4, 0xaa],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xbb, 0xf4],
+            sub: &[0xb4, 0xaa],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xa1, 0xbc, 0xea],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xa1, 0xbc, 0xe8],
+            sub: &[0xb2, 0xf7],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xa1, 0xbc, 0xe8, 0xb2, 0xf7],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xa1, 0xbc, 0xe8],
+            sub: &[0xb2, 0xf7],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb3, 0xad, 0xb6, 0xb0],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb3, 0xad, 0xb6, 0xae],
+            sub: &[0xa4, 0xa2],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xa1, 0xb7, 0xb2],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xa1],
+            sub: &[0xb7, 0xb2],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xbc, 0xc2, 0xb5, 0xb9],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xbc, 0xc2],
+            sub: &[0xb5, 0xb9],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xa1, 0xb7, 0xb2, 0xba, 0xb7],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xa1],
+            sub: &[0xb7, 0xb2, 0xba, 0xb7],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xa1, 0xb4, 0xaa],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xa1],
+            sub: &[0xb4, 0xaa],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xcb, 0xcb, 0xb5, 0xcf],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xcb, 0xcb, 0xb5, 0xd6],
+            sub: &[0xa4, 0xa2],
+            sub2: None,
+            marker: 5,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xc2, 0xd9, 0xb4, 0xe7],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xc2, 0xd7],
+            sub: &[0xa4, 0xa2, 0xb4, 0xe7],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xc2, 0xd7, 0xca, 0xde],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xc2, 0xd7],
+            sub: &[0xca, 0xde],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb8, 0xf6],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb8, 0xf3],
+            sub: &[0xa4, 0xa4],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xa5],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xa1],
+            sub: &[0xa4, 0xa4],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb2, 0xa4],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb1, 0xfd],
+            sub: &[0xa4, 0xa4],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xbd, 0xd5],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xbd, 0xd3],
+            sub: &[0xa4, 0xa2],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb8, 0xf3, 0xbb, 0xa6],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb8, 0xf3, 0xbb, 0xa4],
+            sub: &[0xa4, 0xa2],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xa1, 0xbc, 0xe8],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xa1],
+            sub: &[0xbc, 0xe8],
+            sub2: None,
+            marker: 4,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb3, 0xad, 0xb0, 0xa1],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb3, 0xad],
+            sub: &[0xb0, 0xa1],
+            sub2: None,
+            marker: 2,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xdd, 0xbc, 0xe8, 0xb6, 0xa6],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb4, 0xdd, 0xbc, 0xe8],
+            sub: &[0xb6, 0xa6],
+            sub2: None,
+            marker: 1,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xba, 0xa8, 0xb1, 0xe1],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xba, 0xa8],
+            sub: &[0xb1, 0xe1],
+            sub2: None,
+            marker: 1,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xfb, 0xb6, 0xa6],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xfb],
+            sub: &[0xb6, 0xa6],
+            sub2: None,
+            marker: 2,
+            morphemes: 2,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xdd, 0xc3, 0xcd, 0xba, 0xb7, 0xb2, 0xf7],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb4, 0xdd, 0xc2, 0xd7],
+            sub: &[0xca, 0xde, 0xba, 0xb7],
+            sub2: Some(&[0xb2, 0xf7]),
+            marker: 4,
+            morphemes: 3,
+            f1389: 0x15,
+            f1400: 0x91,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xca, 0xef, 0xb2, 0xf7],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xca, 0xef, 0xb2, 0xf7],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xc0, 0xb0, 0xb2, 0xf7],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xc0, 0xb0, 0xb2, 0xf7],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xcb, 0xfb, 0xb1, 0xe2, 0xb8, 0xf5, 0xb6, 0xf3],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xcb, 0xfb, 0xb1, 0xe2, 0xb8, 0xf5, 0xb6, 0xf3],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb9, 0xdd, 0xb5, 0xfb, 0xbd, 0xc3],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb9, 0xdd, 0xb5, 0xfb, 0xbd, 0xc3],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb1, 0xd7, 0xb7, 0xe1, 0xca, 0xbf],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb1, 0xd7, 0xb7, 0xe1, 0xca, 0xbf],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb1, 0xd7, 0xb7, 0xe1, 0xb8, 0xf2],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb1, 0xd7, 0xb7, 0xe1, 0xb8, 0xf2],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xbc, 0xd6, 0xb7, 0xce],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xbc, 0xd6, 0xb7, 0xce],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb6, 0xf0],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb6, 0xf0],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xbd, 0xbf, 0xec],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xbd, 0xbf, 0xec],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb0, 0xdb, 0xb0, 0xfa],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb0, 0xdb, 0xb0, 0xfa],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
+    ExceptionRule {
+        input: &[0xb4, 0xf5, 0xb6, 0xe7, 0xbe, 0xe0],
+        out: ExceptionOutcome::Hard(HardReading {
+            main: &[0xb4, 0xf5, 0xb6, 0xe7, 0xbe, 0xe0],
+            sub: &[],
+            sub2: None,
+            marker: 0,
+            morphemes: 1,
+            f1389: 0,
+            f1400: 0,
+        }),
+    },
 ];
 
 pub fn lookup_exception(input: &[u8]) -> Option<ExceptionRule> {
     if input.is_empty() {
         return None;
     }
-    EXCEPTION_TABLE
-        .iter()
-        .find(|r| r.input == input)
-        .cloned()
+    EXCEPTION_TABLE.iter().find(|r| r.input == input).cloned()
 }
 
-
-pub static UNIT_TABLE: [(&[u8], &[u8]); 24] = [
+pub static UNIT_TABLE: [(&[u8], &[u8]); 33] = [
     (b"m", &[0xb8, 0xa1, 0xc0, 0xbe]),
     (b"cm", &[0xbb, 0xbf, 0xbe, 0xb7, 0xb8, 0xa1, 0xc0, 0xbe]),
     (b"mm", &[0xb7, 0xe7, 0xb6, 0xae, 0xb8, 0xa1, 0xc0, 0xbe]),
@@ -1437,19 +2043,37 @@ pub static UNIT_TABLE: [(&[u8], &[u8]); 24] = [
     (b"kV", &[0xbf, 0xd4, 0xb5, 0xe1, 0xb8, 0xf6, 0xc0, 0xe2]),
     (b"MV", &[0xb8, 0xa1, 0xb0, 0xa1, 0xb8, 0xf6, 0xc0, 0xe2]),
     (b"A", &[0xca, 0xb7, 0xc2, 0xbc, 0xca, 0xad]),
-    (b"pA", &[0xc2, 0xaa, 0xbf, 0xb8, 0xca, 0xb7, 0xc2, 0xbc, 0xca, 0xad]),
-    (b"nA", &[0xb1, 0xfd, 0xb2, 0xd1, 0xca, 0xb7, 0xc2, 0xbc, 0xca, 0xad]),
-    (b"mA", &[0xb7, 0xe7, 0xb6, 0xae, 0xca, 0xb7, 0xc2, 0xbc, 0xca, 0xad]),
-    (b"kA", &[0xbf, 0xd4, 0xb5, 0xe1, 0xca, 0xb7, 0xc2, 0xbc, 0xca, 0xad]),
+    (
+        b"pA",
+        &[0xc2, 0xaa, 0xbf, 0xb8, 0xca, 0xb7, 0xc2, 0xbc, 0xca, 0xad],
+    ),
+    (
+        b"nA",
+        &[0xb1, 0xfd, 0xb2, 0xd1, 0xca, 0xb7, 0xc2, 0xbc, 0xca, 0xad],
+    ),
+    (
+        b"mA",
+        &[0xb7, 0xe7, 0xb6, 0xae, 0xca, 0xb7, 0xc2, 0xbc, 0xca, 0xad],
+    ),
+    (
+        b"kA",
+        &[0xbf, 0xd4, 0xb5, 0xe1, 0xca, 0xb7, 0xc2, 0xbc, 0xca, 0xad],
+    ),
     (b"W", &[0xcc, 0xae, 0xc0, 0xe2]),
     (b"pW", &[0xc2, 0xaa, 0xbf, 0xb8, 0xcc, 0xae, 0xc0, 0xe2]),
+    (b"Hz", &[0xc7, 0xe7, 0xc3, 0xf7]),
+    (b"kHz", &[0xbf, 0xd4, 0xb5, 0xe1, 0xc7, 0xe7, 0xc3, 0xf7]),
+    (b"MHz", &[0xb8, 0xa1, 0xb0, 0xa1, 0xc7, 0xe7, 0xc3, 0xf7]),
+    (b"ppm", &[0xc7, 0xe7, 0xc3, 0xf7, 0xbe, 0xc8]),
+    (b"dB", &[0xb5, 0xa5, 0xbd, 0xc3, 0xb7, 0xb2]),
+    (b"J", &[0xc0, 0xd0, 0xa4, 0xb7]),
+    (b"F", &[0xc6, 0xd0, 0xb6, 0xf3, 0xb5, 0xe5]),
+    (b"N", &[0xb4, 0xba, 0xc5, 0xeb]),
+    (b"Pa", &[0xc6, 0xd0, 0xbd, 0xba, 0xc4, 0xae]),
 ];
 
 pub fn unit_reading(unit: &[u8]) -> Option<&'static [u8]> {
-    UNIT_TABLE
-        .iter()
-        .find(|(u, _)| *u == unit)
-        .map(|(_, r)| *r)
+    UNIT_TABLE.iter().find(|(u, _)| *u == unit).map(|(_, r)| *r)
 }
 
 pub fn unit_match(unit: &[u8]) -> bool {
@@ -1483,13 +2107,13 @@ pub static DIGIT_WORDS: [&[u8]; 40] = [
     &[0xba, 0xe3],
     &[0xb7, 0xb8],
     &[0xca, 0xde],
-    &[], // sentinel
+    &[],           // sentinel
     &[0xa4, 0xa2], // ㄴ
     &[0xa4, 0xa4], // ㄹ
     &[0xa4, 0xa6], // ㅂ
     &[0xa4, 0xa5], // ㅁ
-    &[], // sentinel
-    &[], // NULL
+    &[],           // sentinel
+    &[],           // NULL
     &[0xb1, 0xb6],
     &[0xb0, 0xd7],
     &[0xc4, 0xfa],
@@ -1519,8 +2143,8 @@ pub static DIGIT_PREFIXES: [&[u8]; 40] = [
     &[0xa4, 0xa4], // ㄹ
     &[0xa4, 0xa6], // ㅂ
     &[0xa4, 0xa5], // ㅁ
-    &[], // sentinel
-    &[], // NULL
+    &[],           // sentinel
+    &[],           // NULL
     &[0xb1, 0xb6],
     &[0xb0, 0xd7],
     &[0xc4, 0xfa],
@@ -1579,9 +2203,7 @@ fn find_bytes(input: &[u8], pat: &[u8]) -> Option<usize> {
     if pat.is_empty() || pat.len() > input.len() {
         return None;
     }
-    input
-        .windows(pat.len())
-        .position(|w| w == pat)
+    input.windows(pat.len()).position(|w| w == pat)
 }
 
 fn contains_bytes(input: &[u8], pat: &[u8]) -> bool {
@@ -1597,7 +2219,6 @@ pub fn special_to_key_char(v: u16) -> Option<u8> {
         _ => None,
     }
 }
-
 
 pub static DIGRAPHS: [&[u8]; 28] = [
     b"es", b"th", b"qu", b"nk", b"dg", b"oo", b"ee", b"oy", b"ay", b"ew", b"au", b"ei", b"ur",
@@ -1643,4 +2264,3 @@ pub static JAMO_READINGS: [(&[u8], &[u8]); 11] = [
     (&[0xa4, 0xac], &[0xa4, 0xac]), // ㅌ
     (&[0xa4, 0xaa], &[0xa4, 0xaa]), // ㅊ
 ];
-

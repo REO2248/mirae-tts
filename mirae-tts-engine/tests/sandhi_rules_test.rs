@@ -1,10 +1,13 @@
 use mirae_tts_engine::g2p::g2p_dict::Reading;
-use mirae_tts_engine::g2p::g2p_dict::{apply_phoneme_sandhi, stage1_phoneme_codes, word_record_from_readings};
+use mirae_tts_engine::g2p::g2p_dict::{
+    apply_phoneme_sandhi, stage1_phoneme_codes, word_record_from_readings,
+};
 use mirae_tts_engine::keypad::KeyPad;
 
 fn sandhi_of(text: &str) -> Vec<u16> {
-    let kp = KeyPad::load("/home/user/reo_work/mirae2_re/extracted/미래2.0/Data/Dictionary/KeyPad.Ebd")
-        .expect("real KeyPad.Ebd must load");
+    let kp =
+        KeyPad::load("/home/user/reo_work/mirae2_re/extracted/미래2.0/Data/Dictionary/KeyPad.Ebd")
+            .expect("real KeyPad.Ebd must load");
     let bytes = kp.convert_str(text);
     let readings = vec![mirae_tts_engine::g2p::g2p_dict::Reading::fallback(&bytes)];
     let mut rec = word_record_from_readings(&readings);
@@ -45,7 +48,10 @@ fn sandhi_swipge() {
 fn sandhi_jejak() {
     let got = sandhi_of("제작되였습니다");
     println!("제작되였습니다: {:04x?}", got);
-    assert_eq!(got, vec![0x6d87, 0x0007, 0x6dce, 0x1472, 0x3910, 0x6d21, 0x6c02]);
+    assert_eq!(
+        got,
+        vec![0x6d87, 0x0007, 0x6dce, 0x1472, 0x3910, 0x6d21, 0x6c02]
+    );
 }
 
 #[test]
@@ -78,8 +84,9 @@ fn sandhi_munhwa() {
 
 #[test]
 fn sandhi_spelling_override() {
-    let kp = KeyPad::load("/home/user/reo_work/mirae2_re/extracted/미래2.0/Data/Dictionary/KeyPad.Ebd")
-        .expect("real KeyPad.Ebd must load");
+    let kp =
+        KeyPad::load("/home/user/reo_work/mirae2_re/extracted/미래2.0/Data/Dictionary/KeyPad.Ebd")
+            .expect("real KeyPad.Ebd must load");
     let bytes = kp.convert_str("지피화동을");
     let readings = vec![mirae_tts_engine::g2p::g2p_dict::Reading::fallback(&bytes)];
     let mut rec = word_record_from_readings(&readings);
@@ -87,12 +94,17 @@ fn sandhi_spelling_override() {
     stage1_phoneme_codes(&mut rec);
     apply_phoneme_sandhi(&mut rec);
     println!("지피화동을+spelling=집필활동을: {:04x?}", rec.phoneme_codes);
-    assert_eq!(rec.phoneme_codes, vec![0x3d27, 0x192b, 0x1a2c, 0x488e, 0x1912]);
+    assert_eq!(
+        rec.phoneme_codes,
+        vec![0x3d27, 0x192b, 0x1a2c, 0x488e, 0x1912]
+    );
 }
 
 #[test]
 fn sandhi_noraejip() {
-    let kp = KeyPad::load("/home/user/reo_work/mirae2_re/extracted/미래2.0/Data/Dictionary/KeyPad.Ebd").unwrap();
+    let kp =
+        KeyPad::load("/home/user/reo_work/mirae2_re/extracted/미래2.0/Data/Dictionary/KeyPad.Ebd")
+            .unwrap();
     let sp = kp.convert_str("조선노래집문학연구");
     let mut decoded = String::new();
     kps9566::kps9566::Decoder::new().decode_to_string(&sp, &mut decoded, true);
@@ -103,16 +115,30 @@ fn sandhi_noraejip() {
     rec.spelling = kp.convert_str("조선노래집문학연구");
     stage1_phoneme_codes(&mut rec);
     apply_phoneme_sandhi(&mut rec);
-    let got: Vec<String> = rec.phoneme_codes.iter().map(|c| format!("{:04x}", c)).collect();
+    let got: Vec<String> = rec
+        .phoneme_codes
+        .iter()
+        .map(|c| format!("{:04x}", c))
+        .collect();
     println!("noraejip: {}", got.join(" "));
-    assert_eq!(rec.phoneme_codes, vec![0x6c87, 0x0846, 0x6c81, 0x6d43, 0x3d27, 0x6cc4, 0x1, 0x0872, 0x6cc0]);
+    assert_eq!(
+        rec.phoneme_codes,
+        vec![
+            0x6c87, 0x0846, 0x6c81, 0x6d43, 0x3d27, 0x6cc4, 0x1, 0x0872, 0x6cc0
+        ]
+    );
 }
 
 #[test]
 fn sandhi_gojeon() {
     let got = sandhi_of("고전적명작문학작품");
     println!("고전적명작문학작품: {:04x?}", got);
-    assert_eq!(got, vec![0x6c80, 0x0847, 0x0051, 0x4864, 0x0007, 0x6cc4, 0x0001, 0x0011, 0x38cb]);
+    assert_eq!(
+        got,
+        vec![
+            0x6c80, 0x0847, 0x0051, 0x4864, 0x0007, 0x6cc4, 0x0001, 0x0011, 0x38cb
+        ]
+    );
 }
 
 #[test]
@@ -121,7 +147,6 @@ fn sandhi_joksi() {
     println!("충족시키며: {:04x?}", got);
     assert_eq!(got, vec![0x48c8, 0x0087, 0x0126, 0x6d29, 0x6c64]);
 }
-
 
 #[test]
 fn sandhi_ssugi_gi_gets_d() {
@@ -139,8 +164,9 @@ fn sandhi_hagi_gi_keeps_open() {
 
 #[test]
 fn sandhi_number_word_linking() {
-    let kp = KeyPad::load("/home/user/reo_work/mirae2_re/extracted/미래2.0/Data/Dictionary/KeyPad.Ebd")
-        .expect("real KeyPad.Ebd must load");
+    let kp =
+        KeyPad::load("/home/user/reo_work/mirae2_re/extracted/미래2.0/Data/Dictionary/KeyPad.Ebd")
+            .expect("real KeyPad.Ebd must load");
     let mut rec = word_record_from_readings(&[Reading::fallback(&kp.convert_str("여권의"))]);
     stage1_phoneme_codes(&mut rec);
     let num_codes = mirae_tts_engine::g2p::g2p_dict::sino_integer_codes(&[1, 5, 0, 0]);
@@ -172,6 +198,8 @@ fn sandhi_number_word_linking() {
     rec2.spelling = sp;
     mirae_tts_engine::g2p::g2p_dict::apply_phoneme_sandhi_from(&mut rec2, num_codes.len() - 1);
     println!("1500여권의: {:04x?}", rec2.phoneme_codes);
-    assert_eq!(rec2.phoneme_codes, vec![0x0848, 0x6c92, 0x6d45, 0x6c60, 0x6e4d, 0x6e01]);
+    assert_eq!(
+        rec2.phoneme_codes,
+        vec![0x0848, 0x6c92, 0x6d45, 0x6c60, 0x6e4d, 0x6e01]
+    );
 }
-

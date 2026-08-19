@@ -65,7 +65,7 @@ impl ProsodyRecord {
         })
     }
 
-/// Apply the pump's initial class mapping (FUN_0044ca50) and set the sentence-end marker.
+    /// Apply the pump's initial class mapping (FUN_0044ca50) and set the sentence-end marker.
     #[inline]
     pub(crate) fn init_from_marker(&mut self, marker_byte: u8, sentence_final: bool) {
         self.flags = (marker_byte >> 7) & 1;
@@ -143,4 +143,3 @@ mod tests {
         assert_eq!(r.tone_class, 3);
     }
 }
-

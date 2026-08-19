@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use mirae_tts_engine::dict::{
-    key_from_syllables, reverse_key, syllable_to_key, Dict, PrefixMatch, TailEntry, KEY_END,
+    Dict, KEY_END, PrefixMatch, TailEntry, key_from_syllables, reverse_key, syllable_to_key,
 };
 
 const VOICE_DIR: &str = "/home/user/reo_work/mirae2_re/extracted/미래2.0/Voice";
@@ -37,7 +37,6 @@ fn reachable_terminals(d: &Dict) -> Vec<(usize, usize)> {
     }
     terms
 }
-
 
 #[test]
 fn parse_all_pkgs_exact_header_and_full_consumption() {
@@ -73,7 +72,6 @@ fn parse_all_pkgs_exact_header_and_full_consumption() {
     }
 }
 
-
 #[test]
 fn alphabet_ga_reaches_node_522_tail_offset_64() {
     let d = load("Alphabet.pkg");
@@ -108,7 +106,6 @@ fn alphabet_ga_reaches_node_522_tail_offset_64() {
     assert_eq!(d.search_exact(&bad), None);
 }
 
-
 #[test]
 fn alphabet_all_1007_terminal_entries_class_codes() {
     let d = load("Alphabet.pkg");
@@ -126,7 +123,6 @@ fn alphabet_all_1007_terminal_entries_class_codes() {
         assert_eq!(e.y, 0, "ノード {node}: Alphabet の Y は全て 0");
     }
 }
-
 
 #[test]
 fn user_pkg_all_8_terminal_entries_x_in_0_8() {
@@ -148,7 +144,6 @@ fn user_pkg_all_8_terminal_entries_x_in_0_8() {
     }
     assert_eq!(xs, [0u16, 1, 2, 3, 4, 5, 6, 8].into_iter().collect());
 }
-
 
 #[test]
 fn colligation_113910_terminal_entries_x_within_sub_a() {
@@ -192,7 +187,6 @@ fn colligation_113910_terminal_entries_x_within_sub_a() {
         "TAIL 範囲外オフセット (c=0 エッジ経由の 3 ノード)"
     );
 }
-
 
 #[test]
 fn every_stored_key_round_trips_exact_and_prefix_search() {
@@ -271,7 +265,6 @@ fn hex(b: &[u8]) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
-
 
 #[test]
 fn nonreg_reversed_keys_round_trip() {
@@ -367,7 +360,6 @@ fn prefix_search_substitution_and_strstr_paths() {
     }
 }
 
-
 #[test]
 fn syllable_key_conversion() {
     assert_eq!(key_from_syllables(&[0x0420]).unwrap(), vec![0x01, 0x14]);
@@ -397,7 +389,6 @@ fn syllable_key_conversion() {
         vec![0x0d, 0x1c, 0x2f]
     );
 }
-
 
 #[test]
 fn sub_a_record_expansion_stops_at_0x80_flag() {
@@ -518,7 +509,6 @@ fn lookup_records_expands_user_entries() {
     assert_eq!(found, 8);
 }
 
-
 #[test]
 fn malformed_input_rejected_and_search_bounds() {
     let good = std::fs::read(Path::new(VOICE_DIR).join("User.pkg")).unwrap();
@@ -579,4 +569,3 @@ fn conjects_x_are_connect_blob_indices() {
         e.x
     );
 }
-

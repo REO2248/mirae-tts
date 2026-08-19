@@ -203,7 +203,7 @@ pub fn tokenize_with(text: &[u8], crlf_breaks: bool, max_sentence_bytes: usize) 
     let text = &text[..text.iter().position(|&b| b == 0).unwrap_or(text.len())];
     let len = text.len();
 
-// Flush the current sentence, optionally appending a delimiter first (FUN_00402180).
+    // Flush the current sentence, optionally appending a delimiter first (FUN_00402180).
     fn flush(
         sentences: &mut Vec<Sentence>,
         buf: &mut Vec<u8>,
@@ -228,7 +228,7 @@ pub fn tokenize_with(text: &[u8], crlf_breaks: bool, max_sentence_bytes: usize) 
     let mut buf: Vec<u8> = Vec::with_capacity(1024); // current sentence (≤ 50000)
     let mut start: usize = 0; // byte offset where the current sentence began
     let mut prev_class: u8 = 0; // obj+0x3c
-// NOTE: the original stores the next-token class at obj+0x40 but the port re-derives it.
+    // NOTE: the original stores the next-token class at obj+0x40 but the port re-derives it.
 
     let mut pos = 0usize;
     while pos < len {
@@ -523,4 +523,3 @@ mod tests {
         assert_eq!(next_token_class(&[0xFF]), (0, 0));
     }
 }
-
