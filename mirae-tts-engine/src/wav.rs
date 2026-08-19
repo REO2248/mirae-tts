@@ -42,6 +42,7 @@ pub struct WavWriter {
     file: Option<File>,
     path: PathBuf,
     data_size: u64,
+    split_index: usize,
     split_threshold: u64,
 }
 
@@ -57,6 +58,7 @@ impl WavWriter {
             file: Some(file),
             path: path.to_path_buf(),
             data_size: 0,
+            split_index: 0,
             split_threshold,
         })
     }
@@ -79,8 +81,21 @@ impl WavWriter {
         let f = self.file.as_mut().expect("WavWriter already finished");
         write_wav_header(f, self.data_size as u32)?;
         self.file = None;
-        let mut file = File::create(&self.path)?;
+        let stem = self
+            .path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("output");
+        let ext = self
+            .path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("wav");
+        let parent = self.path.parent().unwrap_or(std::path::Path::new("."));
+        let next = parent.join(format!("{}_{:03}.{}", stem, self.split_index + 1, ext));
+        let mut file = File::create(&next)?;
         file.seek(SeekFrom::Start(WAV_HEADER_SIZE as u64))?;
+        self.split_index += 1;
         self.file = Some(file);
         self.data_size = 0;
         Ok(())

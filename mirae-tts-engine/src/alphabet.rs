@@ -64,16 +64,16 @@ pub static TWO_BYTE_READINGS: LazyLock<HashMap<u16, &'static [u8]>> = LazyLock::
     m.insert(0xA4AC, &[0xC0u8, 0xEC, 0xC8, 0xB0]); // ㅌ → 티읕
     m.insert(0xA4AD, &[0xC2u8, 0xAA, 0xC8, 0xB8]); // ㅍ → 피읍
     m.insert(0xA4AE, &[0xC7u8, 0xE5, 0xC8, 0xB0]); // ㅎ → 히읗
-    m.insert(0xA5A1, &[0xC5u8, 0xB8]); // ㅏ → 아
-    m.insert(0xA5A2, &[0xC5u8, 0xB8]); // ㅑ → 야
-    m.insert(0xA5A7, &[0xC5u8, 0xB4]); // ㅓ → 어
-    m.insert(0xA5A8, &[0xC5u8, 0xB8]); // ㅕ → 여
-    m.insert(0xA5A9, &[0xC6u8, 0xF7]); // ㅗ → 오
-    m.insert(0xA5AA, &[0xC6u8, 0xF7]); // ㅛ → 요
-    m.insert(0xA5B7, &[0xC6u8, 0xB4]); // ㅜ → 우
-    m.insert(0xA5B8, &[0xC6u8, 0xB8]); // ㅠ → 유
-    m.insert(0xA5B9, &[0xC8u8, 0xB0]); // ㅡ → 으
-    m.insert(0xA5BA, &[0xC8u8, 0xB0]); // ㅣ → 이
+    m.insert(0xA5A1, &[0xCAu8, 0xAD]); // ㅏ → 아 (KeyPad.Ebd verified)
+    m.insert(0xA5A2, &[0xCAu8, 0xBF]); // ㅑ → 야 (KeyPad.Ebd verified)
+    m.insert(0xA5A7, &[0xCAu8, 0xCC]); // ㅓ → 어 (KeyPad.Ebd verified)
+    m.insert(0xA5A8, &[0xCAu8, 0xDE]); // ㅕ → 여 (KeyPad.Ebd verified)
+    m.insert(0xA5A9, &[0xCAu8, 0xEF]); // ㅗ → 오 (KeyPad.Ebd verified)
+    m.insert(0xA5AA, &[0xCAu8, 0xFD]); // ㅛ → 요 (KeyPad.Ebd verified)
+    m.insert(0xA5B7, &[0xCBu8, 0xA7]); // ㅜ → 우 (KeyPad.Ebd verified)
+    m.insert(0xA5B8, &[0xCBu8, 0xB1]); // ㅠ → 유 (KeyPad.Ebd verified)
+    m.insert(0xA5B9, &[0xCBu8, 0xBA]); // ㅡ → 으 (KeyPad.Ebd verified)
+    m.insert(0xA5BA, &[0xCBu8, 0xCB]); // ㅣ → 이 (KeyPad.Ebd verified)
     m
 });
 

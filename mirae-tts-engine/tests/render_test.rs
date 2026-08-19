@@ -392,19 +392,42 @@ fn wav_writer_header_at_finish_and_split() {
         let mut w = WavWriter::create_with_threshold(&path, 100).unwrap();
         w.append(&vec![0x11; 60]).unwrap();
         w.append(&vec![0x22; 60]).unwrap();
+        // first 120 bytes (60+60) finalized into the initial file before split, data_size reset
         assert_eq!(w.data_size(), 0);
         w.append(&vec![0x33; 10]).unwrap();
         let n = w.finish().unwrap();
         assert_eq!(n, 10);
     }
-    let bytes = std::fs::read(&path).unwrap();
+    // After split the initial file keeps the first 120 bytes, the final 10 bytes go to the numbered continuation
+    {
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(
+            bytes.len(),
+            WAV_HEADER_SIZE + 120,
+            "先頭ファイルは分割前の 120 バイトを保持"
+        );
+        assert_eq!(
+            &bytes[WAV_HEADER_SIZE..WAV_HEADER_SIZE + 60],
+            &vec![0x11; 60][..]
+        );
+        assert_eq!(u32::from_le_bytes(bytes[42..46].try_into().unwrap()), 120);
+    }
+    let path2 = {
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap();
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap();
+        path.parent()
+            .unwrap()
+            .join(format!("{}_{:03}.{}", stem, 1, ext))
+    };
+    let bytes2 = std::fs::read(&path2).unwrap();
     assert_eq!(
-        bytes.len(),
+        bytes2.len(),
         WAV_HEADER_SIZE + 10,
-        "分割後は最終セグメントのみ (同名再作成)"
+        "継続ファイルは最終 10 バイト"
     );
-    assert_eq!(&bytes[WAV_HEADER_SIZE..], &vec![0x33; 10][..]);
-    assert_eq!(u32::from_le_bytes(bytes[42..46].try_into().unwrap()), 10);
+    assert_eq!(&bytes2[WAV_HEADER_SIZE..], &vec![0x33; 10][..]);
+    assert_eq!(u32::from_le_bytes(bytes2[42..46].try_into().unwrap()), 10);
+    let _ = std::fs::remove_file(&path2);
     let _ = std::fs::remove_file(&path);
 }
 
