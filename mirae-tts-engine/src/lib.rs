@@ -1,5 +1,5 @@
 //! Text-to-speech library: [`TtsEngine`], [`TtsConfig`], [`encode_wav_vec`] / [`pcm_i16le_to_bytes`].
-//! Byte-exact Rust port of the original Future.exe TTS engine: text -> keypad -> segmenter ->
+//! Rust port of the original Future.exe TTS pipeline: text -> keypad -> segmenter ->
 //! g2p -> tone -> record -> unit_select -> render -> PCM (22050 Hz / s16le / mono).
 pub mod alphabet;
 pub mod connect;
@@ -33,7 +33,7 @@ use unit_select::{ProcessedUnits, UnitSelectConfig, UnitSelector};
 use voice_data::VoiceData;
 use voice_info::VoiceInfo;
 
-// Internal engine (byte-exact port, renamed to avoid clashing with the public API).
+// Internal engine implementation.
 
 /// Voice data directory (default: relative to CWD, like the original app).
 pub const DEFAULT_VOICE_DIR: &str = "Voice";
@@ -228,7 +228,7 @@ impl Mirae2Engine {
         if self.debug_log {
             let n_extra = processed.units.iter().filter(|u| u.extra.is_some()).count();
             eprintln!(
-                "[mirae2-tts-debug] records={} units={} extras={} total_samples={}",
+                "[tts-debug] records={} units={} extras={} total_samples={}",
                 recs.len(),
                 processed.units.len(),
                 n_extra,
@@ -243,7 +243,7 @@ impl Mirae2Engine {
                     )
                 });
                 eprintln!(
-                    "[mirae2-tts-debug] unit {i}: req=({:04x},{:04x},{:04x}) reqcls={:02x} reqpitch={} reqflags={:02x} sel=({:04x},{:04x},{:04x}) woff={} wlen={} pitch={} class={:02x} pause={} marker={} {}",
+                    "[tts-debug] unit {i}: req=({:04x},{:04x},{:04x}) reqcls={:02x} reqpitch={} reqflags={:02x} sel=({:04x},{:04x},{:04x}) woff={} wlen={} pitch={} class={:02x} pause={} marker={} {}",
                     u.request.prev,
                     u.request.cur,
                     u.request.next,
@@ -500,7 +500,7 @@ impl Mirae2Engine {
                 let codes: Vec<String> = g.0.iter().map(|r| format!("{:04x}", r.code)).collect();
                 let flags: Vec<u8> = g.0.iter().map(|r| r.flags).collect();
                 eprintln!(
-                    "[mirae2-tts-debug] group {gi}: n={} codes={} flags={:02x?}",
+                    "[tts-debug] group {gi}: n={} codes={} flags={:02x?}",
                     g.0.len(),
                     codes.join(","),
                     flags
@@ -554,14 +554,14 @@ impl Mirae2Engine {
         let readings = g2p_dict::word_g2p(dicts, word);
         if self.debug_log {
             eprintln!(
-                "[mirae2-tts-debug] word={:02x?} readings={}",
+                "[tts-debug] word={:02x?} readings={}",
                 word,
                 readings.len()
             );
             for (i, r) in readings.iter().enumerate() {
                 let decoded = kps_decode(&r.bytes);
                 eprintln!(
-                    "[mirae2-tts-debug]   reading {i}: bytes={:02x?} dec={decoded} packed={:?} marker={}",
+                    "[tts-debug]   reading {i}: bytes={:02x?} dec={decoded} packed={:?} marker={}",
                     r.bytes, r.packed, r.marker
                 );
             }
@@ -569,7 +569,7 @@ impl Mirae2Engine {
         let mut rec = g2p_dict::word_record_from_readings_final(&readings, final_tone);
         if self.debug_log {
             eprintln!(
-                "[mirae2-tts-debug]   final_tone={final_tone:?} phoneme_markers={:02x?} final_marker={}",
+                "[tts-debug]   final_tone={final_tone:?} phoneme_markers={:02x?} final_marker={}",
                 rec.phoneme_markers, rec.final_marker
             );
         }
@@ -578,7 +578,7 @@ impl Mirae2Engine {
         g2p_dict::apply_accent_markers(&mut rec);
         if self.debug_log {
             eprintln!(
-                "[mirae2-tts-debug]   final_markers={:02x?}",
+                "[tts-debug]   final_markers={:02x?}",
                 rec.phoneme_markers
             );
         }
@@ -646,7 +646,7 @@ impl TtsEngine {
         let keypad = find_keypad_ebd(voice_dir, &voice);
         if keypad.is_none() {
             eprintln!(
-                "[mirae-tts] KeyPad.Ebd not found near {:?} — using built-in KPS9566 fallback (byte-identical for Hangul/ASCII/symbols)",
+                "[tts] KeyPad.Ebd not found near {:?} — using approximate KPS9566 fallback (exact original conversion requires KeyPad.Ebd)",
                 voice_dir
             );
         }
