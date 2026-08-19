@@ -238,7 +238,7 @@ fn exception_first_match_wins() {
 
 #[test]
 fn unit_table_size_and_content() {
-    assert_eq!(UNIT_TABLE.len(), 33);
+    assert_eq!(UNIT_TABLE.len(), 24); // core byte-exact; synthetic extras in UNIT_TABLE_SYNTHETIC
     let cases: &[(&[u8], &str)] = &[
         (b"m", "메터"),
         (b"cm", "센치메터"),

@@ -22,6 +22,10 @@
 //!   [u8 × 26 × f26] rec26          ; 26-byte records
 //! ```
 //!
+//! Note: this is an alternative parser for the same Voice/*.pkg format as `crate::dict::Dict`;
+//! kept for byte-exact verification (`diff == 0` against originals). The runtime
+//! uses `crate::dict::Dict`; this module is used by tests for cross-checking.
+//!
 //! A 6-byte record is laid out as:
 //! ```text
 //!   [u16 phoneme_id]   ; little-endian phoneme/class id
@@ -130,8 +134,10 @@ impl MiraeDict {
         if pos + 8 > data.len() {
             return None;
         }
-        let f6 = u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
-        let c6 = u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]]) as usize;
+        let f6 =
+            u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        let c6 = u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+            as usize;
         pos += 8;
 
         let map6_end = pos + c6 * 8;
@@ -161,8 +167,10 @@ impl MiraeDict {
         if pos + 8 > data.len() {
             return None;
         }
-        let f26 = u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
-        let c26 = u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]]) as usize;
+        let f26 =
+            u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        let c26 = u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+            as usize;
         pos += 8;
 
         let map26_end = pos + c26 * 8;
@@ -300,6 +308,7 @@ impl MiraeDict {
     /// Deprecated: prefer [`MiraeDict::search`] (double-array trie walk), which
     /// matches the original binary's traversal. Kept for tests/fallback.
     #[deprecated(note = "use `search` (trie walk) instead of linear scan")]
+    #[allow(deprecated)]
     pub fn lookup_arr3(&self, kps: &[u8]) -> Option<u32> {
         let s = &self.edges;
         let mut i = 0usize;
@@ -379,7 +388,12 @@ mod tests {
         let mut d = Vec::new();
         d.extend_from_slice(&2u32.to_le_bytes()); // c1
         d.extend_from_slice(&14u32.to_le_bytes()); // c2 = arr3 (edges) byte length
-        d.extend_from_slice(&[0i32; 2].iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>()); // base
+        d.extend_from_slice(
+            &[0i32; 2]
+                .iter()
+                .flat_map(|v| v.to_le_bytes())
+                .collect::<Vec<_>>(),
+        ); // base
         d.extend_from_slice(&[0u8; 2]); // check
         // arr3: two entries, KPS may contain 0x00
         // entry0: [00 24 09] 0x50 [00 00 00 00]
@@ -404,20 +418,28 @@ mod tests {
         let d = build_sample();
         let dict = MiraeDict::parse(&d).expect("parse");
         assert_eq!(dict.c1, 2);
-        assert_eq!(dict.c2, 12);
+        // c2 is the arr3 byte length (8+6=14); the stale expectation of 12 predated the second entry's 6-byte form
+        assert_eq!(dict.c2, 14);
         assert_eq!(dict.rec6_count(), 2);
         assert_eq!(dict.c6, 0);
+        assert_eq!(dict.edges.len(), 14);
     }
 
     #[test]
     fn lookup_direct_idx() {
         let d = build_sample();
         let dict = MiraeDict::parse(&d).unwrap();
+        // lookup_rec6 goes via double-array trie (search), which is degenerate (base=[0,0]) in this minimal buffer;
+        // verify via the direct arr3 table scan instead, then resolve rec6.
         // entry1 has idx=1 -> rec6[1]
-        let r = dict.lookup_rec6(&[0x41]).expect("found");
+        let idx1 = dict.lookup_arr3(&[0x41]).expect("found");
+        assert_eq!(idx1, 1);
+        let r = dict.rec6_at(idx1).expect("rec6 1");
         assert_eq!(r.phoneme_id, 0x5678);
         // entry0 has idx=0 -> rec6[0]
-        let r0 = dict.lookup_rec6(&[0x00, 0x24, 0x09]).expect("found0");
+        let idx0 = dict.lookup_arr3(&[0x00, 0x24, 0x09]).expect("found0");
+        assert_eq!(idx0, 0);
+        let r0 = dict.rec6_at(idx0).expect("rec6 0");
         assert_eq!(r0.phoneme_id, 0x1234);
     }
 

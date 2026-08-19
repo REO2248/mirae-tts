@@ -32,7 +32,7 @@ pub mod g2p_dict {
 
     pub const PROSODY_W1: f32 = 0.5;
     pub const PROSODY_W2: f32 = 0.5;
-    pub const PROSODY_W3: f32 = 0.99;
+    pub const PROSODY_W3: f32 = 0.95; // DAT_0048917c = 0x3f733333 (verified against Future.exe at file 0x8917c)
     pub const ACCENT_RANGE: (f32, f32) = (1.86, 2.9);
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -817,6 +817,14 @@ pub mod g2p_dict {
                 marker: hit.marker,
             }];
         }
+        // Alphabet fallback for single-letter / jamo tokens (morph_type 0x1f,0x20,0x22,0x23,0x24,0x25 lane)
+        // Activated when word is a single ASCII letter or single KPS jamo pair not covered by dictionaries
+        if word.len() == 1 || word.len() == 2 {
+            let readings = crate::alphabet::letter_reading_dispatch(word);
+            if !readings.is_empty() && readings.iter().any(|r| r.bytes != word) {
+                return readings;
+            }
+        }
         vec![Reading::fallback(word)]
     }
 
@@ -1277,36 +1285,36 @@ pub mod g2p_dict {
     pub fn stage8_final_markers(records: &mut [WordRecord]) {
         let n = records.len();
         let mut cum = 0usize;
-        let mut boundary: Option<usize> = None;
+        let mut _boundary: Option<usize> = None;
         for i in 0..n {
             let rec = &mut records[i];
             cum += rec.phoneme_count;
             if cum >= CHUNK_SYLLABLES {
                 rec.final_marker = 5;
                 cum = 0;
-                boundary = Some(i);
+                _boundary = Some(i);
                 continue;
             }
             match rec.accent {
                 0 => rec.final_marker = if rec.flag_link == 0 { 1 } else { 0 },
                 3 => {
                     rec.final_marker = 3;
-                    boundary = Some(i);
+                    _boundary = Some(i);
                 }
                 4 | 5 => {
                     rec.final_marker = 5;
                     cum = 0;
-                    boundary = Some(i);
+                    _boundary = Some(i);
                 }
                 6 | 7 => {
                     rec.final_marker = 2;
                     cum = 0;
-                    boundary = Some(i);
+                    _boundary = Some(i);
                 }
                 8 => {
                     rec.final_marker = 6;
                     cum = 0;
-                    boundary = Some(i);
+                    _boundary = Some(i);
                     for m in rec.phoneme_markers.iter_mut() {
                         *m |= 0x80;
                     }
@@ -1314,13 +1322,14 @@ pub mod g2p_dict {
                 9 => {
                     rec.final_marker = 7;
                     cum = 0;
-                    boundary = Some(i);
+                    _boundary = Some(i);
                 }
                 _ => rec.final_marker = 0,
             }
         }
     }
 
+    /// Stage6 is a no-op in the original binary (empty hook at FUN_0043a9e0); chain is 1/4/7/8/9.
     pub fn postprocess(records: &mut [WordRecord]) {
         for rec in records.iter_mut() {
             stage1_phoneme_codes(rec);
@@ -2024,7 +2033,7 @@ pub fn lookup_exception(input: &[u8]) -> Option<ExceptionRule> {
     EXCEPTION_TABLE.iter().find(|r| r.input == input).cloned()
 }
 
-pub static UNIT_TABLE: [(&[u8], &[u8]); 33] = [
+pub static UNIT_TABLE: [(&[u8], &[u8]); 24] = [
     (b"m", &[0xb8, 0xa1, 0xc0, 0xbe]),
     (b"cm", &[0xbb, 0xbf, 0xbe, 0xb7, 0xb8, 0xa1, 0xc0, 0xbe]),
     (b"mm", &[0xb7, 0xe7, 0xb6, 0xae, 0xb8, 0xa1, 0xc0, 0xbe]),
@@ -2061,6 +2070,11 @@ pub static UNIT_TABLE: [(&[u8], &[u8]); 33] = [
     ),
     (b"W", &[0xcc, 0xae, 0xc0, 0xe2]),
     (b"pW", &[0xc2, 0xaa, 0xbf, 0xb8, 0xcc, 0xae, 0xc0, 0xe2]),
+];
+
+/// Synthetic unit extensions for number_unit tests (not present in Future.exe original table).
+/// Kept separate so byte-exact claims apply to UNIT_TABLE_CORE only.
+pub static UNIT_TABLE_SYNTHETIC: &[(&[u8], &[u8])] = &[
     (b"Hz", &[0xc7, 0xe7, 0xc3, 0xf7]),
     (b"kHz", &[0xbf, 0xd4, 0xb5, 0xe1, 0xc7, 0xe7, 0xc3, 0xf7]),
     (b"MHz", &[0xb8, 0xa1, 0xb0, 0xa1, 0xc7, 0xe7, 0xc3, 0xf7]),
@@ -2073,7 +2087,13 @@ pub static UNIT_TABLE: [(&[u8], &[u8]); 33] = [
 ];
 
 pub fn unit_reading(unit: &[u8]) -> Option<&'static [u8]> {
-    UNIT_TABLE.iter().find(|(u, _)| *u == unit).map(|(_, r)| *r)
+    if let Some((_, r)) = UNIT_TABLE.iter().find(|(u, _)| *u == unit) {
+        return Some(*r);
+    }
+    UNIT_TABLE_SYNTHETIC
+        .iter()
+        .find(|(u, _)| *u == unit)
+        .map(|(_, r)| *r)
 }
 
 pub fn unit_match(unit: &[u8]) -> bool {

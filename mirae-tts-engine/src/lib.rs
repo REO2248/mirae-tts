@@ -16,6 +16,7 @@ pub mod tables;
 pub mod tone;
 pub mod unit_select;
 pub mod voice_data;
+pub mod voice_dict;
 pub mod voice_info;
 pub mod wav;
 
@@ -37,6 +38,15 @@ use voice_info::VoiceInfo;
 
 /// Voice data directory (default: relative to CWD, like the original app).
 pub const DEFAULT_VOICE_DIR: &str = "Voice";
+/// Environment variable for voice directory (`MIRAE_VOICE_DIR`).
+pub const VOICE_DIR_ENV: &str = "MIRAE_VOICE_DIR";
+/// Resolve effective voice dir: `MIRAE_VOICE_DIR` env > `DEFAULT_VOICE_DIR`.
+pub fn default_voice_dir() -> std::path::PathBuf {
+    if let Ok(v) = std::env::var(VOICE_DIR_ENV) {
+        return std::path::PathBuf::from(v);
+    }
+    std::path::PathBuf::from(DEFAULT_VOICE_DIR)
+}
 
 fn truncate_last_line_char(text: &str) -> &str {
     let end = text.trim_end_matches(['\n', '\r']).len();
@@ -553,11 +563,7 @@ impl Mirae2Engine {
         // word_g2p: exception table → morphology (colligation/User) → NonReg
         let readings = g2p_dict::word_g2p(dicts, word);
         if self.debug_log {
-            eprintln!(
-                "[tts-debug] word={:02x?} readings={}",
-                word,
-                readings.len()
-            );
+            eprintln!("[tts-debug] word={:02x?} readings={}", word, readings.len());
             for (i, r) in readings.iter().enumerate() {
                 let decoded = kps_decode(&r.bytes);
                 eprintln!(
@@ -577,10 +583,7 @@ impl Mirae2Engine {
         g2p_dict::apply_morph_boundaries(&mut rec);
         g2p_dict::apply_accent_markers(&mut rec);
         if self.debug_log {
-            eprintln!(
-                "[tts-debug]   final_markers={:02x?}",
-                rec.phoneme_markers
-            );
+            eprintln!("[tts-debug]   final_markers={:02x?}", rec.phoneme_markers);
         }
         g2p_dict::postprocess(std::slice::from_mut(&mut rec));
         g2p_dict::record_to_prosody(&rec)
@@ -628,6 +631,8 @@ fn find_keypad_ebd(voice_dir: &Path, voice: &Path) -> Option<std::path::PathBuf>
 
 impl TtsEngine {
     /// Initialize the engine from `voice_dir` (voice dir, or install root with `Voice/`).
+    /// If `voice_dir` is empty, `MIRAE_VOICE_DIR` env / `DEFAULT_VOICE_DIR` fallback is not auto-used here — callers
+    /// should call `default_voice_dir()` and pass it explicitly when they need env resolution.
     pub fn new<P: AsRef<Path>>(voice_dir: P, config: TtsConfig) -> io::Result<Self> {
         let voice_dir = voice_dir.as_ref();
         let voice: std::path::PathBuf = if voice_dir.join("VoiceInfo.pkg").exists() {

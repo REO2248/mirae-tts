@@ -85,11 +85,11 @@ pub fn is_letter_reading_type(morph_type: u8) -> bool {
     matches!(morph_type, 0x1f | 0x20 | 0x22 | 0x23 | 0x24 | 0x25)
 }
 
-fn has_ascii_alpha(bytes: &[u8]) -> bool {
+pub fn has_ascii_alpha(bytes: &[u8]) -> bool {
     bytes.iter().any(|&b| b.is_ascii_alphabetic())
 }
 
-fn ascii_letter_by_letter(word: &[u8]) -> Vec<Reading> {
+pub fn ascii_letter_by_letter(word: &[u8]) -> Vec<Reading> {
     let mut readings = Vec::with_capacity(word.len());
     for &b in word {
         let lower = b | 0x20;
