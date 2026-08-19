@@ -89,6 +89,7 @@ pub mod g2p_dict {
         pub connect: &'a ConnectMatrix,
     }
 
+    #[allow(dead_code)] // kept for unicode round-trip verification; not on hot path
     fn unicode_syllable_to_jamo(uni: u32) -> Option<(u8, u8, u8)> {
         if !(0xAC00..=0xD7A3).contains(&uni) {
             return None;
@@ -169,7 +170,7 @@ pub mod g2p_dict {
         if start == 0xffff {
             return None;
         }
-        let mut mask = crate::kps_tables::COL_MASKS[e];
+        let _mask = crate::kps_tables::COL_MASKS[e];
         let mut code = start + fin as u16;
         let lo = code & 0xff;
         if lo < (start & 0xff) || 0xfe < lo {
@@ -178,6 +179,7 @@ pub mod g2p_dict {
         Some(code)
     }
 
+    #[allow(dead_code)] // precomputed unicode->jamo table; used only by kps_syllable_map
     fn syllable_jamo_map() -> &'static HashMap<u16, (u8, u8, u8)> {
         static MAP: OnceLock<HashMap<u16, (u8, u8, u8)>> = OnceLock::new();
         MAP.get_or_init(|| {
@@ -196,6 +198,7 @@ pub mod g2p_dict {
         })
     }
 
+    #[allow(dead_code)] // inverse of syllable_jamo_map; kept for byte-exact verification
     fn kps_syllable_map() -> &'static HashMap<(u8, u8, u8), u16> {
         static MAP: OnceLock<HashMap<(u8, u8, u8), u16>> = OnceLock::new();
         MAP.get_or_init(|| {
@@ -368,6 +371,7 @@ pub mod g2p_dict {
         }
     }
 
+    #[allow(dead_code)] // final-agnostic phoneme helper; canonical path uses kps_code_to_phoneme
     fn kps_code_to_phoneme_no_final(kps: u16) -> u16 {
         let Some((init1, med1, _)) = kps_to_jamo_kp(kps) else {
             return 0;
@@ -515,7 +519,7 @@ pub mod g2p_dict {
         let merged = merge_finals(candidate);
         let bytes = codes_to_kps_bytes(&merged)?;
         let marker = records.first().map(|r| r.kind).unwrap_or(0x01);
-        let kinds: Vec<u8> = vec![marker; merged.len()];
+        let _kinds: Vec<u8> = vec![marker; merged.len()];
         Some(Reading {
             bytes,
             packed: None,
@@ -802,8 +806,93 @@ pub mod g2p_dict {
     }
 
     /// Word G2P path: exception → morphology(9w Viterbi, currently 1w skeleton) → NonReg → alphabet → fallback.
-    /// `exception` and the 9-word Viterbi are documented as skeleton in reports_verify/g2p_paths.md.
+    /// `exception` (EXCEPTION_TABLE 60 entries, FUN_0041f020 / FUN_0043b010) is checked first;
+    /// a hit returns the exception reading immediately without entering morphology.
     pub fn word_g2p(dicts: &G2pDicts, word: &[u8]) -> Vec<Reading> {
+        // E: exception table — FUN_0041f020系 early-return (tables.rs EXCEPTION_TABLE via lookup_exception).
+        // This restores the original branch that was documented as skeleton in reports_verify/g2p_paths.md.
+        if let Some(rule) = crate::g2p::lookup_exception(word) {
+            match rule.out {
+                crate::g2p::ExceptionOutcome::Lookup(form) => {
+                    if form == word {
+                        // Identity entries (e.g. 비하여 → 비하여) — avoid infinite loop, fall through to normal path.
+                        // Keep as fallback so the path is still exception-originated.
+                        return vec![Reading {
+                            bytes: form.to_vec(),
+                            packed: None,
+                            marker: MARKER_FALLBACK,
+                        }];
+                    }
+                    if let Some(codes) = kps_bytes_to_codes(form) {
+                        if context_check_skeleton(&codes) {
+                            if let Some(r) = morphology_skeleton(dicts, &codes, form) {
+                                return r;
+                            }
+                        }
+                        if let Some(hit) = nonreg_lookup(dicts, form) {
+                            return vec![Reading {
+                                bytes: hit.reading,
+                                packed: None,
+                                marker: hit.marker,
+                            }];
+                        }
+                        let direct = word_to_readings_codes(dicts, &codes, form);
+                        let is_pure_fallback = direct.len() == 1
+                            && direct[0].marker == MARKER_FALLBACK
+                            && direct[0].bytes == form;
+                        if !is_pure_fallback {
+                            return direct;
+                        }
+                        return vec![Reading {
+                            bytes: form.to_vec(),
+                            packed: None,
+                            marker: MARKER_FALLBACK,
+                        }];
+                    }
+                    return vec![Reading::fallback(word)];
+                }
+                crate::g2p::ExceptionOutcome::Hard(h) => {
+                    let mut out: Vec<Reading> = Vec::new();
+                    for part in [Some(h.main), Some(h.sub), h.sub2].into_iter().flatten() {
+                        if part.is_empty() {
+                            continue;
+                        }
+                        if let Some(codes) = kps_bytes_to_codes(part) {
+                            let r = word_to_readings_codes(dicts, &codes, part);
+                            let is_pure_fallback = r.len() == 1
+                                && r[0].marker == MARKER_FALLBACK
+                                && r[0].bytes == part;
+                            if is_pure_fallback {
+                                out.push(Reading {
+                                    bytes: part.to_vec(),
+                                    packed: None,
+                                    marker: h.marker,
+                                });
+                            } else {
+                                let mut first = true;
+                                for mut rr in r {
+                                    if first {
+                                        rr.marker = h.marker;
+                                        first = false;
+                                    }
+                                    out.push(rr);
+                                }
+                            }
+                        } else {
+                            out.push(Reading {
+                                bytes: part.to_vec(),
+                                packed: None,
+                                marker: h.marker,
+                            });
+                        }
+                    }
+                    if out.is_empty() {
+                        return vec![Reading::fallback(word)];
+                    }
+                    return out;
+                }
+            }
+        }
         let Some(codes) = kps_bytes_to_codes(word) else {
             return vec![Reading::fallback(word)];
         };
@@ -821,7 +910,6 @@ pub mod g2p_dict {
             }];
         }
         // Alphabet fallback for single-letter / jamo tokens (morph_type 0x1f,0x20,0x22,0x23,0x24,0x25 lane)
-        // Activated when word is a single ASCII letter or single KPS jamo pair not covered by dictionaries
         if word.len() == 1 || word.len() == 2 {
             let readings = crate::alphabet::letter_reading_dispatch(word);
             if !readings.is_empty() && readings.iter().any(|r| r.bytes != word) {

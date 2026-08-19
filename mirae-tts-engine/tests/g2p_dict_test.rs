@@ -325,3 +325,37 @@ fn word_to_phoneme_integration() {
     assert_eq!(prosody[0].code, 0x6C87);
     assert_eq!(prosody[1].code, 0x0840);
 }
+
+
+#[test]
+fn word_g2p_exception_early_return() {
+    // Verifies EXCEPTION_TABLE is consulted at word_g2p head (FUN_0041f020 branch):
+    // 해당 word that is in EXCEPTION_TABLE must not fall through to morphology fallback.
+    let kp = keypad();
+    let d = dicts();
+    // 해서 ([0xc3,0xcd,0xba,0xb7]) → Lookup 하여서 ([0xc2,0xd7,0xca,0xde,0xba,0xb7])
+    // word_g2p should return reading bytes derived from the exception form, not the raw input.
+    let input = kp.convert_str("해서");
+    let readings = word_g2p(&d, &input);
+    assert!(!readings.is_empty(), "exception word_g2p must return a reading");
+    // The exception lookup form is 하여서 (6 bytes). Direct morphology/fallback of 해서 would
+    // keep marker 0x11; exception path should produce a non-fallback result via lookup form.
+    // Hard-coded expected: word_g2p("해서") yields reading originating from "하여서".
+    let expected_form = kp.convert_str("하여서");
+    // At least one reading's bytes chain should contain the exception form or its segments,
+    // and not be identical to the raw input fallback path.
+    let all_bytes: Vec<u8> = readings.iter().flat_map(|r| r.bytes.iter().copied()).collect();
+    // Exception path normalizes 해서 → 하여서; verify we don't just echo the input.
+    assert_ne!(
+        readings[0].bytes, input,
+        "exception early-return must not echo input 해서; got {:?}",
+        readings[0].bytes
+    );
+    // And the normalized form should appear (either as exact bytes or as prefix via lookup).
+    assert!(
+        all_bytes.windows(expected_form.len()).any(|w| w == expected_form)
+            || readings.iter().any(|r| r.bytes == expected_form),
+        "exception form 하여서 should appear in word_g2p output, got {:?}",
+        readings.iter().map(|r| r.bytes.clone()).collect::<Vec<_>>()
+    );
+}

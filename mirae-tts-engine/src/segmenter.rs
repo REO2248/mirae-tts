@@ -470,7 +470,7 @@ mod tests {
 
     #[test]
     fn max_sentence_bytes_forced_break() {
-        let input: Vec<u8> = (0..500u16).map(|i| (b'a' + (i % 26) as u8)).collect();
+        let input: Vec<u8> = (0..500u16).map(|i| b'a' + (i % 26) as u8).collect();
         let t = tokenize(&input);
         assert_eq!(t.len(), 2);
         assert_eq!(t[0].text.len(), MAX_SENTENCE_BYTES + 1);

@@ -121,14 +121,7 @@ pub struct UnitRequest {
     pub flags: u8,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ProsodyRecord {
-    pub prev_code: u16,
-    pub code: u16,
-    pub marker: u8,
-    pub flag: u8,
-    pub tone_class: u8,
-}
+pub use crate::record::ProsodyRecord;
 
 impl UnitRequest {
     fn pitch_signed(&self) -> i32 {
@@ -609,7 +602,7 @@ impl<'a> UnitSelector<'a> {
             if tone < 1 && is_pause(req.cur >> 10, req.next & 0x1f) {
                 flags += 1;
             }
-            if rec.flag == 1 {
+            if rec.flags == 1 {
                 flags |= 0x80;
             }
             req.flags = flags;

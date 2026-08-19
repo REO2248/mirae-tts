@@ -3,7 +3,7 @@
 //! g2p -> tone -> record -> unit_select -> render -> PCM (22050 Hz / s16le / mono).
 pub mod alphabet;
 pub mod connect;
-pub mod dict;
+pub mod dict; // canonical Voice/*.pkg parser (single source of truth)
 pub mod digit_tables;
 pub mod g2p;
 pub mod keypad;
@@ -16,6 +16,8 @@ pub mod tables;
 pub mod tone;
 pub mod unit_select;
 pub mod voice_data;
+// Compat wrapper around `dict`; canonical impl is `crate::dict`. Kept for import stability.
+#[allow(deprecated)]
 pub mod voice_dict;
 pub mod voice_info;
 pub mod wav;
@@ -26,6 +28,7 @@ use std::sync::Mutex;
 
 use connect::ConnectMatrix;
 use dict::Dict;
+#[allow(unused_imports)]
 use g2p::g2p_dict::{self, G2pDicts, WordFinalTone, WordRecord};
 use keypad::KeyPad;
 use record::ProsodyRecord;
@@ -72,6 +75,7 @@ pub const DEFAULT_SAMPLE_RATE: u32 = SAMPLE_RATE;
 
 /// Internal engine configuration (subset of the original engine fields).
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // engine tunables retained for future parity (pitch tolerance, end-tone threshold, speed)
 pub(crate) struct EngineConfig {
     /// engine+0xe8: pitch smoothing tolerance (original 15).
     pub(crate) pitch_smoothing_tolerance: u16,
@@ -112,6 +116,7 @@ pub(crate) fn kps_decode(bytes: &[u8]) -> String {
     s
 }
 
+#[allow(dead_code)] // used by g2p syllable_jamo_map (currently dead-code-kept for verification)
 pub(crate) fn kps_lookup(code: u16) -> Option<char> {
     kps9566::kps9566::decode(&[(code >> 8) as u8, code as u8])
         .ok()?
@@ -167,6 +172,7 @@ impl Mirae2Engine {
         })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn config(&self) -> &EngineConfig {
         &self.cfg
     }
@@ -226,7 +232,7 @@ impl Mirae2Engine {
                 prev_code: r.prev_code,
                 code: r.code,
                 marker: r.marker,
-                flag: r.flags,
+                flags: r.flags,
                 tone_class: r.tone_class,
             })
             .collect();
@@ -465,7 +471,7 @@ impl Mirae2Engine {
             }
             let final_tone = self.next_word_final_tone(bytes, pos);
             let word_records = self.word_to_records(&dicts, token, final_tone);
-            let n = word_records.len();
+            let _n = word_records.len();
             let g = groups.last_mut().unwrap();
             g.0.extend(word_records);
             g.1.push(g.0.len());
