@@ -781,6 +781,9 @@ pub mod g2p_dict {
         true
     }
 
+    // TODO(cross-word-viterbi): FUN_0044a100 outer loop over 9-word window + FUN_0042a650 Viterbi DP.
+    // word_g2p is single-word API, so cross-word DP needs sentence-level windowing in lib.rs:word_to_records.
+    // See reports_verify/fix_morphology.md for patch preview (viterbi_single_chunk/cands_by_start/MAX_CANDIDATES=214).
     pub fn morphology_skeleton(
         dicts: &G2pDicts,
         codes: &[u16],
@@ -1303,6 +1306,9 @@ pub mod g2p_dict {
         0
     }
 
+    // TODO(stage4-hooks): stub returns via sandhi_hook_* helpers (linking/nasal/aspirate).
+    // Exact FUN_0043f290/aaa0/f7f0 (11/2/1 returns) and PostprocessHooks wiring is in /tmp/g2p.rs.backup.
+    // Unblocked by single-region check (see reports_verify/fix_stage4.md).
     pub fn stage4_cross_word_sandhi(records: &mut [WordRecord]) {
         let n = records.len();
         for i in 0..n.saturating_sub(1) {
