@@ -1407,7 +1407,7 @@ pub fn number_unit_lookup(current: &[u8], next: &[u8]) -> Option<&'static [u8]> 
         return None;
     }
     let has_digit = current.iter().any(|b| b.is_ascii_digit());
-    let is_korean = !current.is_empty() && current[0] >= 0x80;
+    let is_korean = !current.is_empty() && current[0] >= 0xA1;
     if !(has_digit || is_korean) {
         return None;
     }
@@ -1419,7 +1419,7 @@ pub fn number_unit_reading(current: &[u8], next: &[u8]) -> Option<Vec<u16>> {
     // Check current is a recognizable number form
     let all_digits = current.iter().all(|b| b.is_ascii_digit());
     let has_dot = current.contains(&b'.');
-    let is_korean_num_word = !current.is_empty() && current[0] >= 0x80;
+    let is_korean_num_word = !current.is_empty() && current[0] >= 0xA1;
     if !(all_digits || has_dot || is_korean_num_word) {
         return None;
     }
