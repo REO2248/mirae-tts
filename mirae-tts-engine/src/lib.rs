@@ -1,12 +1,14 @@
 //! Text-to-speech library: [`TtsEngine`], [`TtsConfig`], [`encode_wav_vec`] / [`pcm_i16le_to_bytes`].
-//! Byte-exact Rust port of the original Future.exe TTS engine: text -> keypad -> segmenter ->
+//! Rust port of the original Future.exe TTS pipeline: text -> keypad -> segmenter ->
 //! g2p -> tone -> record -> unit_select -> render -> PCM (22050 Hz / s16le / mono).
+pub mod alphabet;
 pub mod connect;
 pub mod dict;
 pub mod digit_tables;
 pub mod g2p;
 pub mod keypad;
 pub mod kps_tables;
+pub mod postprocess_tables;
 pub mod record;
 pub mod render;
 pub mod segmenter;
@@ -14,6 +16,7 @@ pub mod tables;
 pub mod tone;
 pub mod unit_select;
 pub mod voice_data;
+pub mod voice_dict;
 pub mod voice_info;
 pub mod wav;
 
@@ -26,15 +29,24 @@ use dict::Dict;
 use g2p::g2p_dict::{self, G2pDicts, WordFinalTone, WordRecord};
 use keypad::KeyPad;
 use record::ProsodyRecord;
-use segmenter::{next_token_class, KPS_FULL_STOP, Sentence};
+use segmenter::{KPS_FULL_STOP, Sentence, next_token_class};
 use unit_select::{ProcessedUnits, UnitSelectConfig, UnitSelector};
 use voice_data::VoiceData;
 use voice_info::VoiceInfo;
 
-// Internal engine (byte-exact port, renamed to avoid clashing with the public API).
+// Internal engine implementation.
 
 /// Voice data directory (default: relative to CWD, like the original app).
 pub const DEFAULT_VOICE_DIR: &str = "Voice";
+/// Environment variable for voice directory (`MIRAE_VOICE_DIR`).
+pub const VOICE_DIR_ENV: &str = "MIRAE_VOICE_DIR";
+/// Resolve effective voice dir: `MIRAE_VOICE_DIR` env > `DEFAULT_VOICE_DIR`.
+pub fn default_voice_dir() -> std::path::PathBuf {
+    if let Ok(v) = std::env::var(VOICE_DIR_ENV) {
+        return std::path::PathBuf::from(v);
+    }
+    std::path::PathBuf::from(DEFAULT_VOICE_DIR)
+}
 
 fn truncate_last_line_char(text: &str) -> &str {
     let end = text.trim_end_matches(['\n', '\r']).len();
@@ -120,12 +132,12 @@ pub(crate) struct Mirae2Engine {
     conjects: Dict,
     connect: ConnectMatrix,
     cfg: EngineConfig,
-/// Verbose pipeline debug output (from `TtsConfig::log_progress` or `MIRAE_DEBUG`).
+    /// Verbose pipeline debug output (from `TtsConfig::log_progress` or `MIRAE_DEBUG`).
     debug_log: bool,
 }
 
 impl Mirae2Engine {
-/// Load all voice data from the voice directory plus the KeyPad.Ebd table.
+    /// Load all voice data from the voice directory plus the KeyPad.Ebd table.
     pub(crate) fn from_paths(voice: &Path, keypad_ebd: Option<&Path>) -> io::Result<Self> {
         let keypad = match keypad_ebd {
             Some(p) => KeyPad::load(p)?,
@@ -135,12 +147,8 @@ impl Mirae2Engine {
         let voice_data = VoiceData::open(voice)?;
 
         let dict_load = |name: &str| -> io::Result<Dict> {
-            Dict::load(voice.join(name)).map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("{name}: {e}"),
-                )
-            })
+            Dict::load(voice.join(name))
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("{name}: {e}")))
         };
         let colligation = dict_load("colligation.pkg")?;
         let user = dict_load("User.pkg")?;
@@ -175,7 +183,7 @@ impl Mirae2Engine {
         self.voice_info.entries.len()
     }
 
-/// Synthesize `text` to mono PCM samples (22050 Hz, s16le).
+    /// Synthesize `text` to mono PCM samples (22050 Hz, s16le).
     pub(crate) fn synthesize(&mut self, text: &str) -> io::Result<Vec<i16>> {
         let pcm_bytes = self.synthesize_bytes(text)?;
         let mut out = Vec::with_capacity(pcm_bytes.len() / 2);
@@ -230,7 +238,7 @@ impl Mirae2Engine {
         if self.debug_log {
             let n_extra = processed.units.iter().filter(|u| u.extra.is_some()).count();
             eprintln!(
-                "[mirae2-tts-debug] records={} units={} extras={} total_samples={}",
+                "[tts-debug] records={} units={} extras={} total_samples={}",
                 recs.len(),
                 processed.units.len(),
                 n_extra,
@@ -245,7 +253,7 @@ impl Mirae2Engine {
                     )
                 });
                 eprintln!(
-                    "[mirae2-tts-debug] unit {i}: req=({:04x},{:04x},{:04x}) reqcls={:02x} reqpitch={} reqflags={:02x} sel=({:04x},{:04x},{:04x}) woff={} wlen={} pitch={} class={:02x} pause={} marker={} {}",
+                    "[tts-debug] unit {i}: req=({:04x},{:04x},{:04x}) reqcls={:02x} reqpitch={} reqflags={:02x} sel=({:04x},{:04x},{:04x}) woff={} wlen={} pitch={} class={:02x} pause={} marker={} {}",
                     u.request.prev,
                     u.request.cur,
                     u.request.next,
@@ -287,7 +295,11 @@ impl Mirae2Engine {
         let mut out = Vec::new();
         render::render_units(&mut self.voice_data, &units, &mut out, self.cfg.random_mode)?;
         if self.debug_log {
-            eprintln!("[mirae2-tts] render out.len={} units={}", out.len(), units.len());
+            eprintln!(
+                "[mirae2-tts] render out.len={} units={}",
+                out.len(),
+                units.len()
+            );
         }
         Ok(out)
     }
@@ -498,7 +510,7 @@ impl Mirae2Engine {
                 let codes: Vec<String> = g.0.iter().map(|r| format!("{:04x}", r.code)).collect();
                 let flags: Vec<u8> = g.0.iter().map(|r| r.flags).collect();
                 eprintln!(
-                    "[mirae2-tts-debug] group {gi}: n={} codes={} flags={:02x?}",
+                    "[tts-debug] group {gi}: n={} codes={} flags={:02x?}",
                     g.0.len(),
                     codes.join(","),
                     flags
@@ -541,7 +553,7 @@ impl Mirae2Engine {
         }
     }
 
-/// G2P for one word token -> prosody records (dictionary pipeline + postprocess).
+    /// G2P for one word token -> prosody records (dictionary pipeline + postprocess).
     fn word_to_records(
         &self,
         dicts: &G2pDicts,
@@ -551,15 +563,11 @@ impl Mirae2Engine {
         // word_g2p: exception table → morphology (colligation/User) → NonReg
         let readings = g2p_dict::word_g2p(dicts, word);
         if self.debug_log {
-            eprintln!(
-                "[mirae2-tts-debug] word={:02x?} readings={}",
-                word,
-                readings.len()
-            );
+            eprintln!("[tts-debug] word={:02x?} readings={}", word, readings.len());
             for (i, r) in readings.iter().enumerate() {
                 let decoded = kps_decode(&r.bytes);
                 eprintln!(
-                    "[mirae2-tts-debug]   reading {i}: bytes={:02x?} dec={decoded} packed={:?} marker={}",
+                    "[tts-debug]   reading {i}: bytes={:02x?} dec={decoded} packed={:?} marker={}",
                     r.bytes, r.packed, r.marker
                 );
             }
@@ -567,7 +575,7 @@ impl Mirae2Engine {
         let mut rec = g2p_dict::word_record_from_readings_final(&readings, final_tone);
         if self.debug_log {
             eprintln!(
-                "[mirae2-tts-debug]   final_tone={final_tone:?} phoneme_markers={:02x?} final_marker={}",
+                "[tts-debug]   final_tone={final_tone:?} phoneme_markers={:02x?} final_marker={}",
                 rec.phoneme_markers, rec.final_marker
             );
         }
@@ -575,22 +583,18 @@ impl Mirae2Engine {
         g2p_dict::apply_morph_boundaries(&mut rec);
         g2p_dict::apply_accent_markers(&mut rec);
         if self.debug_log {
-            eprintln!(
-                "[mirae2-tts-debug]   final_markers={:02x?}",
-                rec.phoneme_markers
-            );
+            eprintln!("[tts-debug]   final_markers={:02x?}", rec.phoneme_markers);
         }
         g2p_dict::postprocess(std::slice::from_mut(&mut rec));
         g2p_dict::record_to_prosody(&rec)
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct TtsConfig {
     /// Output sample rate in Hz (default 22050; original speed 50 × 441).
     pub sample_rate: u32,
-/// Legacy sentence-end pause in samples (accepted for compatibility, not applied).
+    /// Legacy sentence-end pause in samples (accepted for compatibility, not applied).
     pub sentence_pause: i16,
     pub log_progress: bool,
 }
@@ -626,7 +630,9 @@ fn find_keypad_ebd(voice_dir: &Path, voice: &Path) -> Option<std::path::PathBuf>
 }
 
 impl TtsEngine {
-/// Initialize the engine from `voice_dir` (voice dir, or install root with `Voice/`).
+    /// Initialize the engine from `voice_dir` (voice dir, or install root with `Voice/`).
+    /// If `voice_dir` is empty, `MIRAE_VOICE_DIR` env / `DEFAULT_VOICE_DIR` fallback is not auto-used here — callers
+    /// should call `default_voice_dir()` and pass it explicitly when they need env resolution.
     pub fn new<P: AsRef<Path>>(voice_dir: P, config: TtsConfig) -> io::Result<Self> {
         let voice_dir = voice_dir.as_ref();
         let voice: std::path::PathBuf = if voice_dir.join("VoiceInfo.pkg").exists() {
@@ -645,7 +651,7 @@ impl TtsEngine {
         let keypad = find_keypad_ebd(voice_dir, &voice);
         if keypad.is_none() {
             eprintln!(
-                "[mirae-tts] KeyPad.Ebd not found near {:?} — using built-in KPS9566 fallback (byte-identical for Hangul/ASCII/symbols)",
+                "[tts] KeyPad.Ebd not found near {:?} — using approximate KPS9566 fallback (exact original conversion requires KeyPad.Ebd)",
                 voice_dir
             );
         }
@@ -783,4 +789,3 @@ mod api_tests {
         assert_eq!(cfg.sample_rate / 441, 50);
     }
 }
-

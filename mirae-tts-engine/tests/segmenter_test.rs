@@ -2,9 +2,8 @@
 //! Expectations derived from the original Future.exe analysis (SPEC_tts_rewrite.md 2.1-2.4).
 use mirae_tts_engine::keypad::KeyPad;
 use mirae_tts_engine::record::ProsodyRecord;
-use mirae_tts_engine::segmenter::{tokenize, Sentence};
+use mirae_tts_engine::segmenter::{Sentence, tokenize};
 use mirae_tts_engine::tone::{apply_sandhi, build_sentence};
-
 
 fn kps_decode(bytes: &[u8]) -> String {
     let mut s = String::new();
@@ -130,4 +129,3 @@ fn record_serialization_12_bytes() {
     assert_eq!(b[4], 2);
     assert_eq!(b[6], 0x28);
 }
-

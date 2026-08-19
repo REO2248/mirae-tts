@@ -1,7 +1,6 @@
 //! Tests for g2p.rs: phoneme-code conversion base + static exception tables + digit/unit reading.
 use mirae_tts_engine::g2p::*;
 
-
 #[test]
 fn phoneme_code_decomposition() {
     assert_eq!(split_phoneme(0x6c0c), (27, 0, 12));
@@ -24,7 +23,10 @@ fn phoneme_code_synthesis() {
 
 #[test]
 fn final_class_table_matches_report() {
-    let expected = [0, 2, 2, 5, 6, 0, 15, 14, 15, 6, 6, 15, 15, 14, 5, 15, 5, 18, 0, 5, 15, 5, 0, 5, 27, 5, 5, 0];
+    let expected = [
+        0, 2, 2, 5, 6, 0, 15, 14, 15, 6, 6, 15, 15, 14, 5, 15, 5, 18, 0, 5, 15, 5, 0, 5, 27, 5, 5,
+        0,
+    ];
     assert_eq!(FINAL_TO_CLASS, expected);
     let mut classes: Vec<u8> = FINAL_TO_CLASS.to_vec();
     classes.sort_unstable();
@@ -93,7 +95,6 @@ fn pause_and_real_phoneme_predicates() {
     assert!(is_real_phoneme_code(0x6d33));
 }
 
-
 fn dec(bytes: &[u8]) -> String {
     let mut s = String::new();
     kps9566::kps9566::Decoder::new().decode_to_string(bytes, &mut s, true);
@@ -111,12 +112,20 @@ fn exception_lookup_words() {
         (&[0xb1, 0xfd, 0xb0, 0xa1], "나가", "나가아"),
         (&[0xb4, 0xdd, 0xb0, 0xd6], "대고", "대이고"),
         (&[0xc3, 0xcd, 0xba, 0xb7], "해서", "하여서"),
-        (&[0xcb, 0xce, 0xb8, 0xc9, 0xc3, 0xf9, 0xc3, 0xcd, 0xba, 0xb7], "일반화해서", "일반화하여서"),
+        (
+            &[0xcb, 0xce, 0xb8, 0xc9, 0xc3, 0xf9, 0xc3, 0xcd, 0xba, 0xb7],
+            "일반화해서",
+            "일반화하여서",
+        ),
         (&[0xbd, 0xdb, 0xbc, 0xbf, 0xc3, 0xcd], "창조해", "창조하여"),
         (&[0xbc, 0xad, 0xc3, 0xcd, 0xbc, 0xec], "전해질", "전하여질"),
         (&[0xb6, 0xed, 0xb1, 0xfd], "만나", "만나아"),
         (&[0xb9, 0xbe, 0xc3, 0xcd], "비해", "비하여"),
-        (&[0xb4, 0xdd, 0xc3, 0xcd, 0xba, 0xb7, 0xb4, 0xc7, 0xbc, 0xe8], "대해서든지", "대하여서든지"),
+        (
+            &[0xb4, 0xdd, 0xc3, 0xcd, 0xba, 0xb7, 0xb4, 0xc7, 0xbc, 0xe8],
+            "대해서든지",
+            "대하여서든지",
+        ),
         (&[0xb8, 0xf5, 0xbc, 0xac, 0xcb, 0xcb], "본적이", "보는적이"),
         (&[0xb1, 0xfd, 0xcc, 0xae], "나와", "나오아"),
         (&[0xb4, 0xae, 0xb5, 0xd8, 0xca, 0xbf], "돌려야", "돌리여야"),
@@ -145,11 +154,23 @@ fn exception_hard_words() {
     let cases: &[(&[u8], &str, &str, &str, u8)] = &[
         (&[0xbb, 0xf4, 0xb4, 0xaa], "자도", "자", "도", 0x04),
         (&[0xb0, 0xa1, 0xbc, 0xea], "가진", "가지", "는", 0x04),
-        (&[0xb0, 0xa1, 0xbc, 0xe8, 0xb2, 0xf7], "가지는", "가지", "는", 0x04),
+        (
+            &[0xb0, 0xa1, 0xbc, 0xe8, 0xb2, 0xf7],
+            "가지는",
+            "가지",
+            "는",
+            0x04,
+        ),
         (&[0xb3, 0xad, 0xb6, 0xb0], "내린", "내리", "ㄴ", 0x04),
         (&[0xb0, 0xa1, 0xb7, 0xb2], "가면", "가", "면", 0x04),
         (&[0xbc, 0xc2, 0xb5, 0xb9], "졸라", "졸", "라", 0x04),
-        (&[0xb0, 0xa1, 0xb7, 0xb2, 0xba, 0xb7], "가면서", "가", "면서", 0x04),
+        (
+            &[0xb0, 0xa1, 0xb7, 0xb2, 0xba, 0xb7],
+            "가면서",
+            "가",
+            "면서",
+            0x04,
+        ),
         (&[0xb0, 0xa1, 0xb4, 0xaa], "가도", "가", "도", 0x04),
         (&[0xcb, 0xcb, 0xb5, 0xcf], "이런", "이렇", "ㄴ", 0x05),
         (&[0xc2, 0xd9, 0xb4, 0xe7], "한데", "하", "ㄴ데", 0x04),
@@ -161,7 +182,13 @@ fn exception_hard_words() {
         (&[0xb8, 0xf3, 0xbb, 0xa6], "보신", "보시", "ㄴ", 0x04),
         (&[0xb0, 0xa1, 0xbc, 0xe8], "가지", "가", "지", 0x04),
         (&[0xb3, 0xad, 0xb0, 0xa1], "내가", "내", "가", 0x02),
-        (&[0xb4, 0xdd, 0xbc, 0xe8, 0xb6, 0xa6], "대지를", "대지", "를", 0x01),
+        (
+            &[0xb4, 0xdd, 0xbc, 0xe8, 0xb6, 0xa6],
+            "대지를",
+            "대지",
+            "를",
+            0x01,
+        ),
         (&[0xba, 0xa8, 0xb1, 0xe1], "삶과", "삶", "과", 0x01),
         (&[0xb0, 0xfb, 0xb6, 0xa6], "그를", "그", "를", 0x02),
     ];
@@ -209,10 +236,9 @@ fn exception_first_match_wins() {
     assert!(matches!(rule.out, ExceptionOutcome::Lookup(f) if dec(f) == "전하여"));
 }
 
-
 #[test]
 fn unit_table_size_and_content() {
-    assert_eq!(UNIT_TABLE.len(), 24);
+    assert_eq!(UNIT_TABLE.len(), 24); // core byte-exact; synthetic extras in UNIT_TABLE_SYNTHETIC
     let cases: &[(&[u8], &str)] = &[
         (b"m", "메터"),
         (b"cm", "센치메터"),
@@ -291,7 +317,6 @@ fn special_to_key_char_conversion() {
     assert_eq!(special_to_key_char(0x3a), None);
 }
 
-
 #[test]
 fn digraph_tables() {
     assert_eq!(DIGRAPHS.len(), 28);
@@ -319,4 +344,3 @@ fn jamo_readings() {
     assert_eq!(dec(JAMO_READINGS[1].0), "ㄴ");
     assert_eq!(dec(JAMO_READINGS[5].0), "ㅂ");
 }
-

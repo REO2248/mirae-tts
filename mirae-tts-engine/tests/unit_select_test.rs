@@ -1,7 +1,7 @@
 //! Real-data verification: VoiceInfo.pkg parse + unit selection (SPEC 2.5 / T1_voiceinfo.md).
 //! Data from MIRAE2_VOICE_DIR; skipped when missing.
 use mirae_tts_engine::unit_select::{
-    is_pause, is_real_phoneme, ProsodyRecord, UnitSelectConfig, UnitSelector,
+    ProsodyRecord, UnitSelectConfig, UnitSelector, is_pause, is_real_phoneme,
 };
 use mirae_tts_engine::voice_info::{VoiceInfo, VoiceInfoEntry};
 use std::path::PathBuf;
@@ -332,11 +332,41 @@ fn boundary_code_used_for_prev_next() {
     };
     let mut sel = UnitSelector::new(&info, UnitSelectConfig::default());
     let records = [
-        ProsodyRecord { prev_code: 0, code: 0x6d86, marker: 0, flag: 0, tone_class: 0x28 },
-        ProsodyRecord { prev_code: 0x6d86, code: 0x6d80, marker: 0, flag: 0, tone_class: 0x01 },
-        ProsodyRecord { prev_code: 0x6d80, code: 0x6d86, marker: 0, flag: 0, tone_class: 0x0a },
-        ProsodyRecord { prev_code: 0x6d86, code: 0x6d80, marker: 0, flag: 0, tone_class: 0x03 },
-        ProsodyRecord { prev_code: 0x6d80, code: 0x6c12, marker: 2, flag: 1, tone_class: 0x1e },
+        ProsodyRecord {
+            prev_code: 0,
+            code: 0x6d86,
+            marker: 0,
+            flag: 0,
+            tone_class: 0x28,
+        },
+        ProsodyRecord {
+            prev_code: 0x6d86,
+            code: 0x6d80,
+            marker: 0,
+            flag: 0,
+            tone_class: 0x01,
+        },
+        ProsodyRecord {
+            prev_code: 0x6d80,
+            code: 0x6d86,
+            marker: 0,
+            flag: 0,
+            tone_class: 0x0a,
+        },
+        ProsodyRecord {
+            prev_code: 0x6d86,
+            code: 0x6d80,
+            marker: 0,
+            flag: 0,
+            tone_class: 0x03,
+        },
+        ProsodyRecord {
+            prev_code: 0x6d80,
+            code: 0x6c12,
+            marker: 2,
+            flag: 1,
+            tone_class: 0x1e,
+        },
     ];
     let out = sel.process(&records);
     assert_eq!(out.units.len(), 5);
@@ -362,14 +392,35 @@ fn sentence_end_record_gets_boundary_next() {
     };
     let mut sel = UnitSelector::new(&info, UnitSelectConfig::default());
     let records = [
-        ProsodyRecord { prev_code: 0, code: 0x6d86, marker: 0, flag: 0, tone_class: 0x28 },
-        ProsodyRecord { prev_code: 0x6d86, code: 0x6d80, marker: 1, flag: 0, tone_class: 0x01 },
-        ProsodyRecord { prev_code: 0x6d80, code: 0x6c12, marker: 0, flag: 0, tone_class: 0x28 },
+        ProsodyRecord {
+            prev_code: 0,
+            code: 0x6d86,
+            marker: 0,
+            flag: 0,
+            tone_class: 0x28,
+        },
+        ProsodyRecord {
+            prev_code: 0x6d86,
+            code: 0x6d80,
+            marker: 1,
+            flag: 0,
+            tone_class: 0x01,
+        },
+        ProsodyRecord {
+            prev_code: 0x6d80,
+            code: 0x6c12,
+            marker: 0,
+            flag: 0,
+            tone_class: 0x28,
+        },
     ];
     let out = sel.process(&records);
     assert_eq!(out.units.len(), 3);
     let B = mirae_tts_engine::unit_select::BOUNDARY_CODE;
-    assert_eq!(out.units[1].request.next, B, "文末レコード next は境界コード");
+    assert_eq!(
+        out.units[1].request.next, B,
+        "文末レコード next は境界コード"
+    );
     assert_eq!(out.units[2].request.prev, 0x6d80);
 }
 
@@ -435,4 +486,3 @@ fn entry_roundtrip_real() {
         assert_eq!(VoiceInfoEntry::from_bytes(&e.to_bytes()), *e);
     }
 }
-

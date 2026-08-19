@@ -2,9 +2,11 @@
 //! Data from the real Voice directory (MIRAE2_VOICE_DIR overridable).
 use std::path::{Path, PathBuf};
 
-use mirae_tts_engine::render::{is_real_phoneme, render_units, Chunk, ChunkRing, RenderUnit, UnitRecord};
+use mirae_tts_engine::render::{
+    Chunk, ChunkRing, RenderUnit, UnitRecord, is_real_phoneme, render_units,
+};
 use mirae_tts_engine::voice_data::VoiceData;
-use mirae_tts_engine::wav::{write_wav_file, write_wav_header, WavWriter, WAV_HEADER_SIZE};
+use mirae_tts_engine::wav::{WAV_HEADER_SIZE, WavWriter, write_wav_file, write_wav_header};
 use mirae_tts_engine::{RING_MAX_BYTES, RING_SLOTS};
 
 fn voice_dir() -> PathBuf {
@@ -53,7 +55,6 @@ fn open_voice_data(dir: &Path) -> VoiceData {
         .unwrap_or_else(|e| panic!("VoiceData.pkg を開けない: {e} ({})", dir.display()))
 }
 
-
 #[test]
 fn voiceinfo_entry0_and_chain() {
     let dir = voice_dir();
@@ -78,7 +79,6 @@ fn voiceinfo_entry0_and_chain() {
         "sum(wlen)×2 != VoiceData.pkg サイズ"
     );
 }
-
 
 #[test]
 fn voice_data_entry0_first_bytes() {
@@ -107,7 +107,6 @@ fn voice_data_entry1_follows_entry0() {
     assert_eq!(&raw[..5658 * 2], &e0[..]);
     assert_eq!(&e1[..2], &raw[11316..11318]);
 }
-
 
 #[test]
 fn render_entry0_with_doubling() {
@@ -255,7 +254,6 @@ fn is_real_phoneme_table() {
     assert!(is_real_phoneme(0, 5));
 }
 
-
 #[test]
 fn chunk_ring_20_slots_and_1mb_limit() {
     let mut ring = ChunkRing::new();
@@ -339,7 +337,6 @@ fn produce_chunks_streaming() {
     assert_eq!(joined, expected, "チャンク連結結果が一括 render と不一致");
 }
 
-
 #[test]
 fn wav_header_46_bytes_exact() {
     let mut buf: Vec<u8> = vec![0u8; 100];
@@ -395,19 +392,42 @@ fn wav_writer_header_at_finish_and_split() {
         let mut w = WavWriter::create_with_threshold(&path, 100).unwrap();
         w.append(&vec![0x11; 60]).unwrap();
         w.append(&vec![0x22; 60]).unwrap();
+        // first 120 bytes (60+60) finalized into the initial file before split, data_size reset
         assert_eq!(w.data_size(), 0);
         w.append(&vec![0x33; 10]).unwrap();
         let n = w.finish().unwrap();
         assert_eq!(n, 10);
     }
-    let bytes = std::fs::read(&path).unwrap();
+    // After split the initial file keeps the first 120 bytes, the final 10 bytes go to the numbered continuation
+    {
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(
+            bytes.len(),
+            WAV_HEADER_SIZE + 120,
+            "先頭ファイルは分割前の 120 バイトを保持"
+        );
+        assert_eq!(
+            &bytes[WAV_HEADER_SIZE..WAV_HEADER_SIZE + 60],
+            &vec![0x11; 60][..]
+        );
+        assert_eq!(u32::from_le_bytes(bytes[42..46].try_into().unwrap()), 120);
+    }
+    let path2 = {
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap();
+        let ext = path.extension().and_then(|s| s.to_str()).unwrap();
+        path.parent()
+            .unwrap()
+            .join(format!("{}_{:03}.{}", stem, 1, ext))
+    };
+    let bytes2 = std::fs::read(&path2).unwrap();
     assert_eq!(
-        bytes.len(),
+        bytes2.len(),
         WAV_HEADER_SIZE + 10,
-        "分割後は最終セグメントのみ (同名再作成)"
+        "継続ファイルは最終 10 バイト"
     );
-    assert_eq!(&bytes[WAV_HEADER_SIZE..], &vec![0x33; 10][..]);
-    assert_eq!(u32::from_le_bytes(bytes[42..46].try_into().unwrap()), 10);
+    assert_eq!(&bytes2[WAV_HEADER_SIZE..], &vec![0x33; 10][..]);
+    assert_eq!(u32::from_le_bytes(bytes2[42..46].try_into().unwrap()), 10);
+    let _ = std::fs::remove_file(&path2);
     let _ = std::fs::remove_file(&path);
 }
 
@@ -462,4 +482,3 @@ fn wav_ffprobe_readable() {
     assert!(stdout.contains("channels=1"), "stdout: {stdout}");
     let _ = std::fs::remove_file(&path);
 }
-

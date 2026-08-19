@@ -4,10 +4,10 @@ use std::path::Path;
 use mirae_tts_engine::connect::ConnectMatrix;
 use mirae_tts_engine::dict::Dict;
 use mirae_tts_engine::g2p::g2p_dict::{
-    codes_to_kps_bytes, conjects_verify, kps_bytes_to_codes, key_str_to_codes, merge_finals,
-    morph_type_code, nonreg_lookup, postprocess, record_to_prosody, split_finals,
-    stage4_cross_word_sandhi, stage7_prosody, stage8_final_markers, to_phoneme_code,
-    word_g2p, word_record_from_readings, word_to_readings, G2pDicts, WordRecord,
+    G2pDicts, WordRecord, codes_to_kps_bytes, conjects_verify, key_str_to_codes,
+    kps_bytes_to_codes, merge_finals, morph_type_code, nonreg_lookup, postprocess,
+    record_to_prosody, split_finals, stage4_cross_word_sandhi, stage7_prosody,
+    stage8_final_markers, to_phoneme_code, word_g2p, word_record_from_readings, word_to_readings,
 };
 use mirae_tts_engine::keypad::KeyPad;
 
@@ -21,8 +21,9 @@ fn dicts() -> G2pDicts<'static> {
     let user: &'static Dict = Box::leak(Box::new(load("User.pkg")));
     let nonreg: &'static Dict = Box::leak(Box::new(load("NonReg.pkg")));
     let conjects: &'static Dict = Box::leak(Box::new(load("Conjects.pkg")));
-    let connect: &'static ConnectMatrix =
-        Box::leak(Box::new(ConnectMatrix::load(Path::new(VOICE_DIR).join("Connect.pkg")).unwrap()));
+    let connect: &'static ConnectMatrix = Box::leak(Box::new(
+        ConnectMatrix::load(Path::new(VOICE_DIR).join("Connect.pkg")).unwrap(),
+    ));
     G2pDicts {
         colligation,
         user,
@@ -37,16 +38,21 @@ fn keypad() -> KeyPad {
         .expect("real KeyPad.Ebd must load")
 }
 
-
 #[test]
 fn kps_bytes_to_codes_known_syllables() {
     let kp = keypad();
-    assert_eq!(kps_bytes_to_codes(&kp.convert_str("가")).unwrap(), vec![0x0420]);
+    assert_eq!(
+        kps_bytes_to_codes(&kp.convert_str("가")).unwrap(),
+        vec![0x0420]
+    );
     assert_eq!(
         kps_bytes_to_codes(&kp.convert_str("조건")).unwrap(),
         vec![0x3520, 0x04A2]
     );
-    assert_eq!(kps_bytes_to_codes(&kp.convert_str("돈")).unwrap(), vec![0x1122]);
+    assert_eq!(
+        kps_bytes_to_codes(&kp.convert_str("돈")).unwrap(),
+        vec![0x1122]
+    );
     assert!(kps_bytes_to_codes(&[0xa1]).is_none());
 }
 
@@ -76,7 +82,6 @@ fn key_str_to_codes_conversion() {
     assert!(key_str_to_codes(&[0x00]).is_none());
 }
 
-
 #[test]
 fn split_and_merge_finals() {
     let split = split_finals(&[0x1127]);
@@ -97,7 +102,6 @@ fn classify_candidate_kinds() {
 fn super_classify(codes: &[u16]) -> u8 {
     mirae_tts_engine::g2p::g2p_dict::classify_candidate(codes)
 }
-
 
 #[test]
 fn word_to_readings_ga_colligation_hit() {
@@ -139,7 +143,6 @@ fn word_to_readings_digit_packed() {
     assert!(readings.iter().all(|r| r.packed.is_some() && r.marker == 1));
 }
 
-
 #[test]
 fn nonreg_ga_hit() {
     let kp = keypad();
@@ -171,7 +174,6 @@ fn nonreg_miss() {
     assert!(nonreg_lookup(&d, b"abc").is_none());
 }
 
-
 #[test]
 fn conjects_verify_real_pairs() {
     let d = dicts();
@@ -185,13 +187,32 @@ fn conjects_verify_real_pairs() {
 
 #[test]
 fn morph_type_code_mapping() {
-    assert_eq!(morph_type_code(0x14), Some(0x8030));
-    assert_eq!(morph_type_code(0x16), Some(0x8032));
-    assert_eq!(morph_type_code(0x1f), Some(0x803b));
+    // BUG FIX: replaced arithmetic expression with correct explicit values.
+    assert_eq!(morph_type_code(0x14), Some(&[0x8035][..]));
+    assert_eq!(morph_type_code(0x15), Some(&[0x8033][..]));
+    assert_eq!(morph_type_code(0x16), Some(&[0x8039][..]));
+    assert_eq!(morph_type_code(0x17), Some(&[0x8021][..]));
+    assert_eq!(morph_type_code(0x18), Some(&[0x8023][..]));
+    assert_eq!(morph_type_code(0x19), Some(&[0x803b][..]));
+    assert_eq!(morph_type_code(0x1a), Some(&[0x8025][..]));
+    assert_eq!(morph_type_code(0x1b), Some(&[0x801d][..]));
+    assert_eq!(morph_type_code(0x1c), Some(&[0x8027][..]));
+    assert_eq!(morph_type_code(0x1d), Some(&[0x8029][..]));
+    assert_eq!(morph_type_code(0x1e), Some(&[0x8037, 0x801d][..]));
+    assert_eq!(morph_type_code(0x1f), Some(&[0x8031, 0x8027, 0x801d][..]));
+    assert_eq!(morph_type_code(0x20), Some(&[0x800f][..]));
+    assert_eq!(morph_type_code(0x21), Some(&[0x8019][..]));
+    assert_eq!(morph_type_code(0x22), Some(&[0x801b][..]));
+    assert_eq!(morph_type_code(0x23), Some(&[0x800d][..]));
+    assert_eq!(morph_type_code(0x24), Some(&[0x802d][..]));
+    assert_eq!(morph_type_code(0x25), Some(&[0x802f][..]));
+    assert_eq!(morph_type_code(0x26), Some(&[0x8011][..]));
+    assert_eq!(morph_type_code(0x27), Some(&[0x8013][..]));
+    assert_eq!(morph_type_code(0x28), Some(&[0x8015][..]));
+    assert_eq!(morph_type_code(0x29), Some(&[0x8017][..]));
     assert_eq!(morph_type_code(0x13), None);
-    assert_eq!(morph_type_code(0x20), None);
+    assert_eq!(morph_type_code(0x2a), None);
 }
-
 
 #[test]
 fn to_phoneme_code_voiceinfo_verified() {
@@ -200,7 +221,6 @@ fn to_phoneme_code_voiceinfo_verified() {
     assert_eq!(to_phoneme_code(0x1125), 0x2082);
     assert_eq!(to_phoneme_code(0x04A2), 0x0840);
 }
-
 
 fn ga_record() -> WordRecord {
     let kp = keypad();
@@ -259,7 +279,10 @@ fn stage8_chunk_boundary_at_60() {
     assert_eq!(recs[0].final_marker, 1);
     assert_eq!(recs[1].final_marker, 5);
     assert_eq!(recs[2].final_marker, 1);
-    assert!(recs.iter().all(|r| r.phoneme_markers.iter().all(|&m| m & 0x80 == 0)));
+    assert!(
+        recs.iter()
+            .all(|r| r.phoneme_markers.iter().all(|&m| m & 0x80 == 0))
+    );
 }
 
 #[test]
@@ -281,15 +304,20 @@ fn stage8_marker_case_mapping() {
     assert_eq!(recs[4].final_marker, 5);
 }
 
-
 #[test]
 fn word_to_phoneme_integration() {
     let kp = keypad();
     let d = dicts();
-    let mut recs = vec![word_record_from_readings(&word_g2p(&d, &kp.convert_str("가")))];
+    let mut recs = vec![word_record_from_readings(&word_g2p(
+        &d,
+        &kp.convert_str("가"),
+    ))];
     postprocess(&mut recs);
     assert_eq!(recs[0].phoneme_codes, vec![0x6c00]);
-    let mut recs = vec![word_record_from_readings(&word_g2p(&d, &kp.convert_str("조건")))];
+    let mut recs = vec![word_record_from_readings(&word_g2p(
+        &d,
+        &kp.convert_str("조건"),
+    ))];
     postprocess(&mut recs);
     assert_eq!(recs[0].phoneme_codes, vec![0x6C87, 0x0840]);
     let prosody = record_to_prosody(&recs[0]);
@@ -297,4 +325,3 @@ fn word_to_phoneme_integration() {
     assert_eq!(prosody[0].code, 0x6C87);
     assert_eq!(prosody[1].code, 0x0840);
 }
-
