@@ -48,17 +48,14 @@ pub fn default_voice_dir() -> std::path::PathBuf {
     std::path::PathBuf::from(DEFAULT_VOICE_DIR)
 }
 
-fn truncate_last_line_char(text: &str) -> &str {
-    let end = text.trim_end_matches(['\n', '\r']).len();
-    if end == 0 {
-        return text;
-    }
-    let last_char_len = text[..end]
-        .chars()
-        .next_back()
-        .map(|c| c.len_utf8())
-        .unwrap_or(0);
-    &text[..end - last_char_len]
+pub fn truncate_last_line_char(text: &str) -> &str {
+    // Strip only trailing \n/\r characters. The previous implementation
+    // unconditionally removed one extra character (even when there was no
+    // trailing newline), which caused the final syllable of inputs like
+    // "가나다" to be lost ("가나"). The helper should never drop a real
+    // character — it only exists to tolerate file/stdin inputs ending with
+    // a newline. We also expose this as pub(crate) for regression testing.
+    text.trim_end_matches(['\n', '\r'])
 }
 
 /// Logical output sample rate (Hz), per original WAVEFORMATEX (speed 50 × 441).

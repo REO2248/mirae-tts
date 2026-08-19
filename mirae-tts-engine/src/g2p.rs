@@ -801,6 +801,8 @@ pub mod g2p_dict {
         if all.is_empty() { None } else { Some(all) }
     }
 
+    /// Word G2P path: exception → morphology(9w Viterbi, currently 1w skeleton) → NonReg → alphabet → fallback.
+    /// `exception` and the 9-word Viterbi are documented as skeleton in reports_verify/g2p_paths.md.
     pub fn word_g2p(dicts: &G2pDicts, word: &[u8]) -> Vec<Reading> {
         let Some(codes) = kps_bytes_to_codes(word) else {
             return vec![Reading::fallback(word)];
