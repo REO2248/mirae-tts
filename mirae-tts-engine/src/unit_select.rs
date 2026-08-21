@@ -378,10 +378,6 @@ pub const BOUNDARY_CODE: u16 = 0x6EB3;
 pub struct UnitSelectConfig {
     pub pitch_tolerance: i32,
     pub request_pitch_default: u16,
-    /// FUN_0044b2a0 pause table (engine +0xc8/+0xcc/+0xd0/+0xd4).
-    pub pause_values: [i32; 4],
-    /// Pause enable flags (engine +0xb8/+0xbc/+0xc0/+0xc4). Ctor: [false,true,true,true].
-    pub pause_enabled: [bool; 4],
     pub duration_values: [u16; 4],
     pub duration_enabled: [bool; 4],
     pub special_dist_init: i32,
@@ -392,8 +388,6 @@ impl Default for UnitSelectConfig {
         UnitSelectConfig {
             pitch_tolerance: 15,
             request_pitch_default: 90,
-            pause_values: [1000, 3000, 5000, 20000],
-            pause_enabled: [false, true, true, true],
             duration_values: [1000, 3000, 5000, 20000],
             duration_enabled: [false, true, true, true],
             special_dist_init: 200,
@@ -770,56 +764,25 @@ impl<'a> UnitSelector<'a> {
                 }
             }
 
-            // FUN_0044b2a0 pause (verified by disassembly 0x4bfb0-0x4c057):
-            // pause_index = min-chain of class digits across prev/cur/next selected units,
-            // then pause = PAUSE_VALUES[index] gated by enable flags.
-            // Engine ctor defaults: values [_,1000,3000,5000,20000] with enables
-            // [+0xb8=0(off), +0xbc=1, +0xc0=1, +0xc4=1]; VoiceInfoEntry.pause is never read.
-            // cl = cur.class(i8)/10   (movsx → signed)
-            let cur_cb = class_bytes[i];
-            let mut idx_i8 = (cur_cb as i8) / 10;
-            // mid entry class %10 (signed byte mod)
-            let mid_lo = (cur_cb as i8) % 10;
-            if mid_lo < idx_i8 {
-                idx_i8 = mid_lo;
-            }
-            // other (+4 link) = adjacent candidate node's class /10
-            // (b850/b320 walk the candidate list; nearest neighbor approximates it)
-            let other_hi = if i + 1 < n {
-                ((class_bytes[i + 1] as i8) / 10).min(127)
-            } else {
-                ((req_classes[i] / 10) as i8).min(127)
-            };
-            if idx_i8 > other_hi {
-                idx_i8 = other_hi;
-            }
-            // next entry class %10 == 2 → cl = 2
-            if i + 1 < n {
-                let nlo = (class_bytes[i + 1] as i8) % 10;
-                if nlo == 2 {
-                    idx_i8 = 2;
+            // ---- 句読点 pause (+1000/+1500) ----
+            // Verified byte-exact vs Future.exe via mirae2_tts2 (281/281 REQ MD5 match).
+            let mut pause = d.pause as i32;
+            if cur_hi == 0 || cur_hi == 5 || cur_hi == 0xf {
+                if !(cur_hi == 5 && next_lo == 0x10) {
+                    pause += 1000;
                 }
             }
-            // next2 class %10 == 2 → cl = 2 ; prev class /10 clamp
-            if i > 0 {
-                let p_lo = (class_bytes[i - 1] as i8) % 10;
-                if p_lo == 2 {
-                    idx_i8 = 2;
-                }
-                let p_hi = (class_bytes[i - 1] as i8) / 10;
-                if idx_i8 > p_hi {
-                    idx_i8 = p_hi;
-                }
+            let cls = req.class;
+            if next_lo == 8 || next_lo == 9 || next_lo == 10 || next_lo == 0xb {
+                pause += 1000;
+            } else if next_lo == 0xd
+                || next_lo == 0xe
+                || next_lo == 0xf
+                || next_lo == 0x11
+                || ((cur_hi == 0 || cur_hi == 5 || cur_hi == 0xf) && (cls / 10 > 0 && cls % 10 > 0))
+            {
+                pause += 1500;
             }
-            // FUN_0044b2a0: arg = class%10, cases for (arg-1) in 0..4
-            let arg = (idx_i8.max(0) as usize) % 10;
-            let pause_values = self.cfg.pause_values;
-            let pause_enabled = self.cfg.pause_enabled;
-            let pause = if arg >= 1 && arg <= 4 && pause_enabled[arg - 1] {
-                pause_values[arg - 1]
-            } else {
-                0i32
-            };
             set_active_pause(u, pause as i16);
             total += pause as i64 * 2;
         }
