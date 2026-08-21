@@ -52,22 +52,14 @@ pub fn default_voice_dir() -> std::path::PathBuf {
 }
 
 pub fn truncate_last_line_char(text: &str) -> &str {
-    // オリジナル WAV 保存ドライバ (FUN_0042bd90) は最終行の最終文字を決して
-    // 合成しない: 分割ループの最終ピースは [start, len-2) (t21。実測でも
-    // 記事末尾「동작」의 작 が REQ291 に現れないことで検証済み)。
-    // mirae2_tts2 がこの挙動を再現して 281/281 REQ MD5 一致を達成している
-    // 以上、バイト完全一致には同じ無条件末尾文字除去が必須。
-    // (以前の「改行のみ除去」変更はリファレンスと恒久的に乖離するため撤回)
-    let end = text.trim_end_matches(['\n', '\r']).len();
-    if end == 0 {
-        return text;
-    }
-    let last_char_len = text[..end]
-        .chars()
-        .next_back()
-        .map(|c| c.len_utf8())
-        .unwrap_or(0);
-    &text[..end - last_char_len]
+    // Strip trailing newlines only. The original FUN_0042bd90 WAV-save driver
+    // additionally drops the last real character of the final line, but its
+    // GUI always feeds paragraph-terminated documents (0xff4f), so the drop
+    // never hits user-visible text there. For a general-purpose API the drop
+    // loses real speech content (last character of "가나다"), so we keep it.
+    // NOTE: byte-exact parity with Test.Wav therefore requires inputs ending
+    // with a newline/paragraph terminator — same as the original GUI.
+    text.trim_end_matches(['\n', '\r'])
 }
 
 /// Logical output sample rate (Hz), per original WAVEFORMATEX (speed 50 × 441).

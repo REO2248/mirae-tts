@@ -53,3 +53,13 @@ t8アンカー(オリジナル実機キャプチャ)と我々のポートの選�
 - /tmp/ours_units.txt — 我々の281ユニット要求+選択ダンプ (MIRAE_DEBUG=1)
 - /tmp/kps_phoneme_map.txt — KPS9566→音素コード対応表 (2350エントリ)
 - /tmp/art_ours.wav == /tmp/art_ref.wav — 記事合成結果 (バイト一致)
+
+
+## POST-MORTEM (same day)
+
+The divergence investigated above does not exist. The input text used for the
+comparison (/tmp/article_s09_1.txt) had all newlines stripped; the original
+capture text (/tmp/cap_text.txt) is newline-terminated. With the correct text,
+port == mirae2_tts2 == Test.Wav byte-exact (d30a9754943e19b649054181dd6f618e).
+The "unit176 branch point" was an artifact of comparing against a
+mis-decomposed input. Kept as a record of the analysis method.

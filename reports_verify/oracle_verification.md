@@ -100,3 +100,33 @@ parity with actual Future.exe audio output remains unproven for long inputs.
 The earlier claim "byte-exact reachable by adding a delimiter" was FALSIFIED
 and fixed: the truncate_last_line_char now reproduces FUN_0042bd90 exactly
 (unconditional last-char drop), matching mirae2_tts2 semantics.
+
+
+## UPDATE 4: FINAL RESOLUTION (2026-08-21)
+
+### The "audio drift" was a comparison artifact
+The earlier GT-vs-ref drift report used /tmp/article_s09_1.txt — a copy with
+newlines stripped. With the correct capture text (/tmp/cap_text.txt, newline-
+terminated), ALL THREE produce identical bytes:
+
+  Test.Wav (Future.exe wine)   = d30a9754943e19b649054181dd6f618e
+  mirae2_tts2                  = d30a9754943e19b649054181dd6f618e
+  mirae-tts port               = d30a9754943e19b649054181dd6f618e
+
+**The port is byte-exact with the original Future.exe output on the full
+article (69.464 s, 1531687 samples).** No unexplained divergence remains;
+the unit176 "divergence" investigation (UPDATE 3) was chasing an artifact.
+
+### Last-character policy (user decision)
+User chose practical mode: the last real character of the input is always
+synthesized. faithful option explicitly rejected. truncate_last_line_char now
+strips trailing newlines only. Byte parity with Test.Wav holds when the input
+ends with a newline/paragraph terminator — the same shape the original GUI
+always produces. Without a trailing newline the port synthesizes one extra
+syllable compared to the original's WAV-save path (which drops it); this is
+the intended practical difference.
+
+### mirae2_tts2 retired as verification reference
+All verification now goes directly against Future.exe captures:
+- ground_truth/original_article_reading.wav == wine_run/app/Test.Wav
+- ground_truth/hello_안녕하십니까_original.wav (33815 samples)
