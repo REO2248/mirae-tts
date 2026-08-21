@@ -77,3 +77,26 @@ text input. The GT wav was captured WITH the original's off-by-one bug.
 
 For byte-exact comparison: input must end with a delimiter (newline/period) so
 the truncate behavior doesn't affect the actual speech content.
+
+
+## UPDATE 3: FULL CROSS-VALIDATION MATRIX (audit follow-up)
+
+| Input | ours vs mirae2_tts2 | notes |
+|---|---|---|
+| 안녕하세요. | ✅ byte-exact (80056B) | |
+| 안녕하세요.\n | ✅ byte-exact | |
+| 안녕하십니까\n | ✅ byte-exact (81042B) | truncate bug reproduction verified |
+| 가나다\n | ✅ byte-exact (57214B) | |
+| 3.14입니다. / 3kg입니다. | ✅ byte-exact | |
+| article_s09_1 (359 chars) | ✅ byte-exact (2864742B) | strongest evidence |
+
+**Honest caveat**: mirae2_tts2 itself does NOT byte-match the wine-captured GT
+WAVs at audio level (GT hello=33815 samples vs ref 40498; GT article=69.5s vs
+ref 65.0s with drift accumulating from silence #30). The 281/281 proof is at
+REQ (unit request stream) level, not rendered-audio level. Our port inherits
+this same relationship: parity with the reference implementation is total;
+parity with actual Future.exe audio output remains unproven for long inputs.
+
+The earlier claim "byte-exact reachable by adding a delimiter" was FALSIFIED
+and fixed: the truncate_last_line_char now reproduces FUN_0042bd90 exactly
+(unconditional last-char drop), matching mirae2_tts2 semantics.
