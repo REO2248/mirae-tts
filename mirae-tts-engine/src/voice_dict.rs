@@ -27,7 +27,9 @@ impl MiraeDict {
 
     /// Load from a file path (compat).
     pub fn load<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        crate::dict::Dict::load(path).map(MiraeDict).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+        crate::dict::Dict::load(path)
+            .map(MiraeDict)
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
     }
 
     /// Double-array trie search (delegates to `Dict::search_exact`).
@@ -69,8 +71,12 @@ impl MiraeDict {
 
     // Expose a few raw fields needed by tests that inspected `MiraeDict` directly.
     // They are synthesized from Dict; sizes are approximations for compatibility.
-    pub fn c1(&self) -> usize { self.0.n1() }
-    pub fn c2(&self) -> usize { self.0.n2() }
+    pub fn c1(&self) -> usize {
+        self.0.n1()
+    }
+    pub fn c2(&self) -> usize {
+        self.0.n2()
+    }
 }
 
 #[cfg(test)]

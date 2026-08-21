@@ -18,13 +18,20 @@ fn wav_hash(wav: &[u8]) -> String {
 
 fn voice_dir_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
-    for v in [std::env::var("MIRAE_VOICE_DIR").ok(), std::env::var("MIRAE2_VOICE_DIR").ok()] {
+    for v in [
+        std::env::var("MIRAE_VOICE_DIR").ok(),
+        std::env::var("MIRAE2_VOICE_DIR").ok(),
+    ] {
         if let Some(s) = v {
             out.push(PathBuf::from(s));
         }
     }
-    out.push(PathBuf::from("/home/user/reo_work/mirae2_re/extracted/미래2.0/Voice"));
-    out.push(PathBuf::from("/home/user/reo_work/future2/data/미래2.0/Voice"));
+    out.push(PathBuf::from(
+        "/home/user/reo_work/mirae2_re/extracted/미래2.0/Voice",
+    ));
+    out.push(PathBuf::from(
+        "/home/user/reo_work/future2/data/미래2.0/Voice",
+    ));
     out.push(PathBuf::from("/home/user/.wine/drive_c/mirae20/Voice"));
     out.push(PathBuf::from("Voice"));
     out.push(PathBuf::from("mirae-tts-engine/Voice"));
@@ -80,20 +87,24 @@ fn e2e_with_voice(vdir: &PathBuf) {
             "[{name}] pcm_len mismatch: got {} expected {golden_pcm_len} (text={text})",
             pcm.len()
         );
-        let wav = encode_wav_vec(&pcm, 22050)
-            .unwrap_or_else(|e| panic!("encode_wav_vec {name}: {e}"));
+        let wav =
+            encode_wav_vec(&pcm, 22050).unwrap_or_else(|e| panic!("encode_wav_vec {name}: {e}"));
         // WAV は 46Bヘッダ + pcm*2
-        assert_eq!(
-            wav.len(),
-            46 + pcm.len() * 2,
-            "[{name}] wav.len mismatch"
-        );
+        assert_eq!(wav.len(), 46 + pcm.len() * 2, "[{name}] wav.len mismatch");
         // header byte-exact (wav.rs: 46-byte WAVEFORMATEX)
         assert_eq!(&wav[0..4], b"RIFF", "[{name}] RIFF");
         assert_eq!(&wav[8..12], b"WAVE", "[{name}] WAVE");
         assert_eq!(&wav[12..16], b"fmt ", "[{name}] fmt ");
-        assert_eq!(&wav[16..20], &0x12u32.to_le_bytes(), "[{name}] fmt chunk size 0x12");
-        assert_eq!(&wav[24..28], &22050u32.to_le_bytes(), "[{name}] sample_rate");
+        assert_eq!(
+            &wav[16..20],
+            &0x12u32.to_le_bytes(),
+            "[{name}] fmt chunk size 0x12"
+        );
+        assert_eq!(
+            &wav[24..28],
+            &22050u32.to_le_bytes(),
+            "[{name}] sample_rate"
+        );
         assert_eq!(&wav[38..42], b"data", "[{name}] data tag");
         assert_eq!(
             &wav[42..46],
@@ -108,7 +119,8 @@ fn e2e_with_voice(vdir: &PathBuf) {
 
         let hash = wav_hash(&wav);
         assert_eq!(
-            &hash, *golden_hash,
+            &hash,
+            *golden_hash,
             "[{name}] WAV hash mismatch: got {hash} expected {golden_hash} — \
              text={text} pcm_len={} wav_len={}. \
              Future.exe 実出力がない場合はこの golden が変更検出の基準点。 \
@@ -119,7 +131,10 @@ fn e2e_with_voice(vdir: &PathBuf) {
 
         // 同一入力は二度合成しても一致（決定性）
         let pcm2 = engine.synthesize(text).expect("second synthesize");
-        assert_eq!(pcm, pcm2, "[{name}] not deterministic (second synthesize differs)");
+        assert_eq!(
+            pcm, pcm2,
+            "[{name}] not deterministic (second synthesize differs)"
+        );
         let wav2 = encode_wav_vec(&pcm2, 22050).unwrap();
         assert_eq!(wav, wav2, "[{name}] wav not deterministic");
     }
@@ -136,7 +151,10 @@ fn e2e_without_voice_fallback() {
         let hex = parts.next().expect("golden missing hex");
         let len_s = parts.next().expect("golden missing len");
         assert_eq!(hex.len(), 16, "[{name}] golden hex len");
-        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()), "[{name}] golden hex chars");
+        assert!(
+            hex.chars().all(|c| c.is_ascii_hexdigit()),
+            "[{name}] golden hex chars"
+        );
         let wav_len: usize = len_s.parse().expect("golden len parse");
         // wav_len は pcm_len*2 + 46 に一致するはず
         assert_eq!(
@@ -148,7 +166,9 @@ fn e2e_without_voice_fallback() {
     }
 
     // encode_wav_vec の決定性とヘッダ固定性（Voice不要）
-    let pcm: Vec<i16> = (0..2048).map(|i| ((i * 37) % 32767 - 16384) as i16).collect();
+    let pcm: Vec<i16> = (0..2048)
+        .map(|i| ((i * 37) % 32767 - 16384) as i16)
+        .collect();
     let wav_a = encode_wav_vec(&pcm, 22050).unwrap();
     let wav_b = encode_wav_vec(&pcm, 22050).unwrap();
     assert_eq!(wav_a, wav_b, "encode_wav_vec not deterministic");
@@ -163,7 +183,11 @@ fn e2e_without_voice_fallback() {
     let mut pcm2 = pcm.clone();
     pcm2[0] ^= 1;
     let wav_c = encode_wav_vec(&pcm2, 22050).unwrap();
-    assert_ne!(wav_hash(&wav_c), h_a, "hash collision on single-sample change");
+    assert_ne!(
+        wav_hash(&wav_c),
+        h_a,
+        "hash collision on single-sample change"
+    );
 }
 
 #[test]
