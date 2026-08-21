@@ -1,280 +1,179 @@
-//! VoiceInfo.pkg: count N then N×28-byte entries. VoiceData.pkg: s16le mono; `wave_offset` is samples (bytes ×2).
-//! 28B layout: 0 phoneme_id, 2 prev, 4 next, 8 wave_off i32, 12 wave_len i32, 16 quality i16, 18 pitch i16, 20 prosody i8 (/10=row,%10=col), 22 flags (bit7=emphasis), 24 pause i16.
-
-use std::fs::File;
-use std::io::{self, Read};
+//! VoiceInfo.pkg - unit index parser (28-byte entries: [u32 count][count x 28B]).
+//! Entry: +0 cur u16, +2 prev u16, +4 next u16, +6 cur2 u16, +8 woff u32, +0xc wlen u32,
+//! +0x10 unk u16, +0x12 pitch u16, +0x14 class u16, +0x16 flags u16, +0x18 pause i16, +0x1a woff_lo.
+use std::io;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, Default)]
-#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct VoiceInfoEntry {
-    pub raw: [u8; 28],
+    /// +0x00 current (right) phoneme code — selection match key.
+    pub phone_cur: u16,
+    pub phone_prev: u16,
+    pub phone_next: u16,
+    pub phone_cur2: u16,
+    /// +0x08 sample offset in VoiceData.pkg (byte offset = woff×2).
+    pub woff: u32,
+    /// +0x0c unit length in samples (byte length = wlen×2).
+    pub wlen: u32,
+    pub unk_0x10: u16,
+    /// +0x12 pitch feature (≈ F0/3); filter [78,220], tie-break key.
+    pub pitch: u16,
+    /// +0x14 phoneme class code (byte+0x14 = code, byte+0x15 = low digit + bit7 flag).
+    pub classcode: u16,
+    /// +0x16 flags: byte+0x16 bit7 = special unit (excluded from normal selection).
+    pub flags: u16,
+    pub pause: i16,
+    pub woff_lo: u16,
 }
 
 impl VoiceInfoEntry {
-    pub fn phoneme_id(&self) -> u16 {
-        u16::from_le_bytes([self.raw[0], self.raw[1]])
+    pub fn from_bytes(b: &[u8; 28]) -> Self {
+        let u16at = |off: usize| u16::from_le_bytes([b[off], b[off + 1]]);
+        let u32at = |off: usize| u32::from_le_bytes([b[off], b[off + 1], b[off + 2], b[off + 3]]);
+        VoiceInfoEntry {
+            phone_cur: u16at(0x00),
+            phone_prev: u16at(0x02),
+            phone_next: u16at(0x04),
+            phone_cur2: u16at(0x06),
+            woff: u32at(0x08),
+            wlen: u32at(0x0c),
+            unk_0x10: u16at(0x10),
+            pitch: u16at(0x12),
+            classcode: u16at(0x14),
+            flags: u16at(0x16),
+            pause: i16::from_le_bytes([b[0x18], b[0x19]]),
+            woff_lo: u16at(0x1a),
+        }
     }
 
-    pub fn prev_context(&self) -> u16 {
-        u16::from_le_bytes([self.raw[2], self.raw[3]])
+    pub fn is_normal(&self) -> bool {
+        (self.flags as u8 as i8) >= 0
     }
 
-    pub fn next_context(&self) -> u16 {
-        u16::from_le_bytes([self.raw[4], self.raw[5]])
+    pub fn is_special(&self) -> bool {
+        !self.is_normal()
     }
 
-    pub fn wave_offset(&self) -> u32 {
-        u32::from_le_bytes([self.raw[8], self.raw[9], self.raw[10], self.raw[11]])
+    pub fn class_byte(&self) -> u8 {
+        (self.classcode & 0xff) as u8
     }
 
-    pub fn wave_samples(&self) -> u32 {
-        u32::from_le_bytes([self.raw[12], self.raw[13], self.raw[14], self.raw[15]])
+    pub fn class_hi_byte(&self) -> u8 {
+        (self.classcode >> 8) as u8
     }
 
-    /// Mirae: `% 10000 == 0` may select an alternate take.
-    pub fn quality_marker(&self) -> i16 {
-        i16::from_le_bytes([self.raw[16], self.raw[17]])
+    pub fn pitch_signed(&self) -> i32 {
+        self.pitch as i16 as i32
     }
 
-    pub fn entry_pause_samples(&self) -> i16 {
-        i16::from_le_bytes([self.raw[24], self.raw[25]])
-    }
-
-    pub fn pitch(&self) -> i16 {
-        i16::from_le_bytes([self.raw[18], self.raw[19]])
-    }
-
-    pub fn prosody_byte(&self) -> i8 {
-        self.raw[20] as i8
-    }
-
-    pub fn prosody_row(&self) -> i32 {
-        (self.prosody_byte() as i32) / 10
-    }
-
-    pub fn prosody_col(&self) -> i32 {
-        (self.prosody_byte() as i32) % 10
-    }
-
-    /// bit7 = emphasis
-    pub fn flags_byte(&self) -> u8 {
-        self.raw[22]
-    }
-
-    pub fn is_emphasis(&self) -> bool {
-        (self.raw[22] & 0x80) != 0
-    }
-
-    /// flags byte as signed: negative ⇒ invalid entry (skip)
-    pub fn is_valid(&self) -> bool {
-        (self.raw[22] as i8) >= 0
+    pub fn to_bytes(&self) -> [u8; 28] {
+        let mut b = [0u8; 28];
+        let put_u16 = |b: &mut [u8; 28], off: usize, v: u16| {
+            b[off] = (v & 0xff) as u8;
+            b[off + 1] = (v >> 8) as u8;
+        };
+        put_u16(&mut b, 0x00, self.phone_cur);
+        put_u16(&mut b, 0x02, self.phone_prev);
+        put_u16(&mut b, 0x04, self.phone_next);
+        put_u16(&mut b, 0x06, self.phone_cur2);
+        b[0x08..0x0c].copy_from_slice(&self.woff.to_le_bytes());
+        b[0x0c..0x10].copy_from_slice(&self.wlen.to_le_bytes());
+        put_u16(&mut b, 0x10, self.unk_0x10);
+        put_u16(&mut b, 0x12, self.pitch);
+        put_u16(&mut b, 0x14, self.classcode);
+        put_u16(&mut b, 0x16, self.flags);
+        b[0x18..0x1a].copy_from_slice(&self.pause.to_le_bytes());
+        put_u16(&mut b, 0x1a, self.woff_lo);
+        b
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct VoiceInfo {
     pub entries: Vec<VoiceInfoEntry>,
 }
 
 impl VoiceInfo {
-    pub fn load<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let mut f = File::open(path.as_ref())?;
-
-        let mut buf4 = [0u8; 4];
-        f.read_exact(&mut buf4)?;
-        let count = u32::from_le_bytes(buf4) as usize;
-
-        let mut entries = Vec::with_capacity(count);
-        for _ in 0..count {
-            let mut entry = VoiceInfoEntry::default();
-            f.read_exact(&mut entry.raw)?;
-            entries.push(entry);
+    pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
+        if data.len() < 4 {
+            return Err(format!("VoiceInfo: file too short ({})", data.len()));
         }
-
+        let count = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+        let need = 4usize
+            .checked_add(count.checked_mul(28).ok_or("VoiceInfo: count overflow")?)
+            .ok_or("VoiceInfo: size overflow")?;
+        if data.len() != need {
+            return Err(format!(
+                "VoiceInfo: size mismatch: {} != 4 + {}×28 = {}",
+                data.len(),
+                count,
+                need
+            ));
+        }
+        let mut entries = Vec::with_capacity(count);
+        for i in 0..count {
+            let b: &[u8; 28] = data[4 + i * 28..4 + (i + 1) * 28]
+                .try_into()
+                .map_err(|_| "VoiceInfo: entry slice")?;
+            entries.push(VoiceInfoEntry::from_bytes(b));
+        }
         Ok(VoiceInfo { entries })
     }
 
-    pub fn find_best_unit(
-        &self,
-        target_phoneme: u16,
-        prev_ctx: u16,
-        next_ctx: u16,
-        prosody: i8,
-        target_pitch: i16,
-    ) -> Option<(usize, i32)> {
-        let mut best_idx: Option<usize> = None;
-        let mut best_score: i32 = i32::MIN;
-        let mut best_pitch_dist: i32 = i32::MAX;
-
-        for (i, entry) in self.entries.iter().enumerate() {
-            if !entry.is_valid() {
-                continue;
-            }
-
-            if entry.phoneme_id() != target_phoneme {
-                continue;
-            }
-
-            let mut score: i32 = 100;
-
-            let prev_score = Self::context_score(prev_ctx, entry.prev_context());
-            score += prev_score;
-
-            let next_score = Self::context_score_next(next_ctx, entry.next_context());
-            score += next_score;
-
-            let entry_prosody = entry.prosody_byte();
-            if entry_prosody == prosody {
-                score += 50;
-            } else if entry_prosody / 10 == prosody / 10 {
-                score += 20;
-            }
-
-            let pitch_dist = ((entry.pitch() as i32) - (target_pitch as i32)).abs();
-
-            if score > best_score || (score == best_score && pitch_dist < best_pitch_dist) {
-                best_score = score;
-                best_idx = Some(i);
-                best_pitch_dist = pitch_dist;
-            }
-        }
-
-        best_idx.map(|idx| (idx, best_score))
+    pub fn load(path: impl AsRef<Path>) -> io::Result<Self> {
+        let data = std::fs::read(path)?;
+        Self::from_bytes(&data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
-    fn context_score(target: u16, candidate: u16) -> i32 {
-        if target == candidate {
-            80
-        } else if (target ^ candidate) & 0xFFE0 == 0 {
-            // onset class (upper bits match)
-            70
-        } else if target >> 10 == candidate >> 10 {
-            40
-        } else {
-            20
-        }
+    pub fn count(&self) -> usize {
+        self.entries.len()
     }
 
-    fn context_score_next(target: u16, candidate: u16) -> i32 {
-        if target == candidate {
-            80
-        } else if (target ^ candidate) & 0x3FF == 0 {
-            // vowel side: lower 10 bits
-            70
-        } else if (target & 0x1F) == (candidate & 0x1F) {
-            // coda class: low 5 bits
-            40
-        } else {
-            20
-        }
+    pub fn woff_chain_ok(&self) -> bool {
+        self.entries
+            .windows(2)
+            .all(|w| w[1].woff == w[0].woff.wrapping_add(w[0].wlen))
+    }
+
+    pub fn cur_dup_ok(&self) -> bool {
+        self.entries.iter().all(|e| e.phone_cur == e.phone_cur2)
+    }
+
+    pub fn total_samples(&self) -> u64 {
+        self.entries.iter().map(|e| e.wlen as u64).sum()
     }
 }
 
-pub struct VoiceDataReader {
-    file: File,
-    len: usize,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn read_exact_at(file: &File, buf: &mut [u8], mut offset: u64) -> io::Result<()> {
-    let mut filled = 0usize;
-    while filled < buf.len() {
-        let n = read_at_os(file, &mut buf[filled..], offset)?;
-        if n == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "VoiceData.pkg: unexpected EOF while reading range",
-            ));
-        }
-        filled += n;
-        offset += n as u64;
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn read_at_os(file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
-    use std::os::unix::fs::FileExt;
-    file.read_at(buf, offset)
-}
-
-#[cfg(windows)]
-fn read_at_os(file: &File, buf: &mut [u8], offset: u64) -> io::Result<usize> {
-    use std::os::windows::fs::FileExt;
-    file.seek_read(buf, offset)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn read_at_os(_file: &File, _buf: &mut [u8], _offset: u64) -> io::Result<usize> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "VoiceDataReader: only Unix and Windows are supported",
-    ))
-}
-
-impl VoiceDataReader {
-    pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let file = File::open(path.as_ref())?;
-        let len = file.metadata()?.len() as usize;
-        Ok(VoiceDataReader { file, len })
+    #[test]
+    fn entry0_matches_t1_hexdump() {
+        let raw: [u8; 28] = [
+            0x86, 0x6d, 0xb3, 0x6e, 0x80, 0x6d, 0x86, 0x6d, 0x00, 0x00, 0x00, 0x00, 0x1a, 0x16,
+            0x00, 0x00, 0x50, 0x14, 0x56, 0x00, 0x28, 0x00, 0x01, 0xff, 0xf9, 0xff, 0x00, 0x00,
+        ];
+        let e = VoiceInfoEntry::from_bytes(&raw);
+        assert_eq!(e.phone_cur, 0x6d86);
+        assert_eq!(e.phone_prev, 0x6eb3);
+        assert_eq!(e.phone_next, 0x6d80);
+        assert_eq!(e.phone_cur2, 0x6d86);
+        assert_eq!(e.woff, 0);
+        assert_eq!(e.wlen, 5658);
+        assert_eq!(e.pitch, 0x56);
+        assert_eq!(e.classcode, 0x0028);
+        assert_eq!(e.flags, 0xff01);
+        assert_eq!(e.pause, -7);
+        assert_eq!(e.woff_lo, 0);
+        assert!(e.is_normal());
+        assert!(!e.is_special());
+        assert_eq!(VoiceInfoEntry::from_bytes(&e.to_bytes()), e);
     }
 
-    pub fn read_samples(&self, entry: &VoiceInfoEntry) -> io::Result<Vec<i16>> {
-        let offset = entry.wave_offset() as usize;
-        let sample_count = entry.wave_samples() as usize;
-
-        if sample_count == 0 {
-            return Ok(Vec::new());
-        }
-
-        let byte_start = offset * 2;
-        let byte_end = byte_start + sample_count * 2;
-
-        if byte_end > self.len {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!(
-                    "VoiceData.pkg: range {}..{} exceeds file size {}",
-                    byte_start, byte_end, self.len
-                ),
-            ));
-        }
-
-        let mut raw = vec![0u8; sample_count * 2];
-        read_exact_at(&self.file, &mut raw, byte_start as u64)?;
-
-        let mut samples = Vec::with_capacity(sample_count);
-        for chunk in raw.chunks_exact(2) {
-            samples.push(i16::from_le_bytes([chunk[0], chunk[1]]));
-        }
-
-        Ok(samples)
-    }
-
-    pub fn read_raw(&self, byte_offset: u64, byte_count: usize) -> io::Result<Vec<u8>> {
-        let start = byte_offset as usize;
-        let end = start + byte_count;
-
-        if end > self.len {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                format!(
-                    "VoiceData.pkg: range {}..{} exceeds file size {}",
-                    start, end, self.len
-                ),
-            ));
-        }
-
-        let mut buf = vec![0u8; byte_count];
-        read_exact_at(&self.file, &mut buf, byte_offset)?;
-        Ok(buf)
-    }
-
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
+    #[test]
+    fn parse_rejects_truncated() {
+        assert!(VoiceInfo::from_bytes(&[0u8; 3]).is_err());
+        assert!(VoiceInfo::from_bytes(&[1, 0, 0, 0]).is_err());
     }
 }

@@ -2,7 +2,7 @@
 name = "mirae-tts-engine"
 version = "0.1.0"
 edition = "2024"
-description = "Mirae 2.0 TTS engine reimplementation in Rust"
+description = "Mirae 2.0 TTS engine reimplementation in Rust (byte-exact port)"
 license = "MIT"
 
 [lints.rust]
@@ -10,5 +10,3 @@ unsafe_code = "forbid"
 
 [dependencies]
 kps9566 = { git = "https://github.com/REO2248/kps9566-rs", rev = "a65c6f974842b56191bebd3b8f7d4cacaf697046" }
-hound = "3"
-tracing = "0.1.44"

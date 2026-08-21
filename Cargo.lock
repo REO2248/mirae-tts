@@ -423,9 +423,7 @@ dependencies = [
 name = "mirae-tts-engine"
 version = "0.1.0"
 dependencies = [
- "hound",
  "kps9566",
- "tracing",
 ]
 
 [[package]]
