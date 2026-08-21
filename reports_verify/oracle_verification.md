@@ -58,3 +58,22 @@ disabled case 0).
 Remaining GT delta (33815 vs 21017) implies the GT capture input was NOT plain
 안녕하십니까 (likely longer text or trailing punctuation) — GT input must be
 re-recorded with recorded input before final byte-exact claim.
+
+
+## UPDATE 2: ROOT CAUSE FULLY IDENTIFIED
+
+Cross-validation with mirae2_tts2 (byte-exact reference) revealed:
+
+**mirae2_tts2 intentionally reproduces Future.exe's off-by-one bug** where the
+WAV save driver (FUN_0042bd90) never synthesizes the last character of the last
+line. Its `truncate_last_line_char` drops the final character unconditionally.
+
+For 안녕하십니까:
+- mirae2_tts2/GT: 까 dropped → 5 syllables → 13815 audio + 20000 pause = 33815
+- Our port: all 6 syllables correctly synthesized → 21017 samples (no bug)
+
+Our port's truncate fix (@34a9999) that only strips \n/\r is CORRECT for normal
+text input. The GT wav was captured WITH the original's off-by-one bug.
+
+For byte-exact comparison: input must end with a delimiter (newline/period) so
+the truncate behavior doesn't affect the actual speech content.

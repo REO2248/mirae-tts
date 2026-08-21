@@ -2164,7 +2164,8 @@ pub mod g2p_dict {
         stage4_cross_word_sandhi(records);
         stage7_prosody(records);
         stage8_final_markers(records);
-        stage9_post_loop_propagation(records);
+        // stage9_post_loop_propagation is NOT in the default pipeline
+        // (mirae2_tts2 byte-exact reference doesn't have it either)
     }
 
     pub fn stage9_post_loop_propagation(records: &mut [WordRecord]) {
