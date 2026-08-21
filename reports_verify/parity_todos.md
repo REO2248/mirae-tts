@@ -14,8 +14,8 @@
 
 ## Remaining
 
-1. Oracle verification of the Viterbi lane against wine captures (Future.exe) before enabling intra-word.
-2. ACCENT_RANGE (1.86,2.9) vs binary 0x89180/84 (2.85/1.8) — needs Ghidra re-check (g2p_postprocess.md §1.3).
+1. **E2E audio parity NOT yet proven** — oracle_verification.md: 안녕하십니까 Rust 42517 samples vs wine GT 33815 (1.257×). Dictionary fallback markers verified correct-per-algorithm; divergence is downstream (unit wlen selection or marker/tone_class). Needs per-unit oracle re-capture with recorded input.
+2. Viterbi lane oracle verification before enabling intra-word (currently behind sentence-level API).
 
 ## Status
 All structural parity items are implemented: truncate, alphabet 22, UNIT kHz, is_korean guard, exception early-return, deadcode integration, E2E hash regression, stage4 exact hooks + PostprocessHooks (@abf03ab), Viterbi DP + sentence window (@ec47ffa).
