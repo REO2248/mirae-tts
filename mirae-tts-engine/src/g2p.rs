@@ -1521,25 +1521,39 @@ pub mod g2p_dict {
             return;
         }
         for i in 0..n {
+            // Original FUN_00440470 computes both smoothings in x87 80-bit
+            // registers with a single rounding to f32 at each store (fstp).
+            // Reproduce with f64 intermediates; m_prev/m_next enter via fild
+            // (integer load) at full precision.
             let m_prev = if i > 0 {
-                records[i - 1].rule_marker as f32
+                records[i - 1].rule_marker as f64
             } else {
                 0.0
             };
             let m_next = if i + 1 < n {
-                records[i + 1].rule_marker as f32
+                records[i + 1].rule_marker as f64
             } else {
                 0.0
             };
-            let s1 = PROSODY_W1 * (m_prev + m_next) + (1.0 - PROSODY_W1) * records[i].prosody[0];
-            let s2 = PROSODY_W3 * s1 + (1.0 - PROSODY_W3) * records[i].prosody[2];
-            records[i].prosody[0] = s1;
-            records[i].prosody[1] = s1;
-            records[i].prosody[2] = s2;
+            let w1 = PROSODY_W1 as f64;
+            let w3 = PROSODY_W3 as f64;
+            let p0 = records[i].prosody[0] as f64;
+            let p2 = records[i].prosody[2] as f64;
+            // s1 = W1*(m_prev+m_next) + (1-W1)*p0   [80-bit chain]
+            let s1 = w1 * (m_prev + m_next) + (1.0 - w1) * p0;
+            // s2 = W3*s1 + (1-W3)*p2               [80-bit chain, s1 unrounded]
+            let s2 = w3 * s1 + (1.0 - w3) * p2;
+            // single rounding per stored field (fstp dword)
+            let s1f = s1 as f32;
+            let s2f = s2 as f32;
+            records[i].prosody[0] = s1f;
+            records[i].prosody[1] = s1f;
+            records[i].prosody[2] = s2f;
             if records[i].rule_marker != 0 {
                 if records[i].rule_marker < 4 {
+                    // accent compare uses the rounded stored s2 (fstp before fcomp)
                     let (lo, hi) = ACCENT_RANGE;
-                    records[i].accent = if !(lo..=hi).contains(&s2) { 3 } else { 0 };
+                    records[i].accent = if !(lo..=hi).contains(&s2f) { 3 } else { 0 };
                 } else {
                     records[i].accent = records[i].rule_marker;
                 }

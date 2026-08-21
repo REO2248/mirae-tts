@@ -51,11 +51,14 @@ fn find_voice_dir() -> Option<PathBuf> {
 // 測定環境: Voice=/home/user/reo_work/mirae2_re/extracted/미래2.0/Voice, engine rev 57b8cb5
 // wav_hash は FNV-1a 64 over `encode_wav_vec(&pcm, 22050)` の全バイト。
 // pcm_lengths を併記し、変更時の差分特定を容易にする。
+// Goldens regenerated after FUN_0044b2a0 pause fix (regold @ current main).
+// Previous goldens were captured with the pre-fix ad-hoc pause algorithm
+// (entry.pause + 1000/1500 bonuses) which the original never uses.
 const CASES: &[(&str, &str, &str, usize)] = &[
     // (name, text, golden wav_hash, golden pcm_len samples)
-    ("short", "안녕하세요.", "7d86294270efccec:80056", 40005),
-    ("decimal", "3.14입니다.", "5e00f5212a9e4d07:103404", 51679),
-    ("unit_mixed", "3kg입니다.", "710ef8c2577ea456:82136", 41045),
+    ("short", "안녕하세요.", "1cf1053239baf894:40056", 20005),
+    ("decimal", "3.14입니다.", "00839b109648c55f:60404", 30179),
+    ("unit_mixed", "3kg입니다.", "5192bc3be793f40e:40136", 20045),
 ];
 
 #[test]
