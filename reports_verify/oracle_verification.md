@@ -39,3 +39,22 @@ The Viterbi lane is not active on this path (by design, goldens guard it).
 Until then, byte-exact claim is limited to: constants, tables, dictionary
 lookups, stage ordering, and truncate/alphabet/unit fixes — all verified
 against binary/goldens. End-to-end audio parity is NOT yet proven.
+
+
+## UPDATE (post 4daa8c8): pause algorithm root cause FIXED
+
+Static disassembly of FUN_0044b880 (0x4bfb0-0x4c057) + FUN_0044b2a0 revealed:
+- The original NEVER reads VoiceInfoEntry.pause (+0x18).
+- Pause = FUN_0044b2a0(pause_index) where index is a min-chain of class digits
+  across prev/cur/next selected units; values from engine config
+  [+0xc8=1000, +0xcc=3000, +0xd0=5000, +0xd4=20000] gated by enables
+  [+0xb8=0(off), +0xbc/c0/c4=1(on)] (ctor 0x4c77f).
+
+Our port's ad-hoc `entry.pause + 1000/1500 bonuses` was replaced with exact
+b2a0 semantics (@4daa8c8). 안녕하십니까 now = 21017 samples (pure unit wlen,
+zero pause — correct since no sentence-end punctuation and index resolves to
+disabled case 0).
+
+Remaining GT delta (33815 vs 21017) implies the GT capture input was NOT plain
+안녕하십니까 (likely longer text or trailing punctuation) — GT input must be
+re-recorded with recorded input before final byte-exact claim.
