@@ -17,7 +17,6 @@ use axum::{
 use bytes::Bytes;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tower_http::cors::CorsLayer;
@@ -243,6 +242,23 @@ async fn index(State(_): State<Arc<AppState>>) -> Html<&'static str> {
     Html(include_str!("../assets/index.html"))
 }
 
+/// Resolves on SIGTERM (unix) or Ctrl+C.
+#[cfg(unix)]
+async fn shutdown_signal() {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut sigterm = signal(SignalKind::terminate()).expect("SIGTERM handler");
+    tokio::select! {
+        _ = sigterm.recv() => {},
+        _ = tokio::signal::ctrl_c() => {},
+    }
+}
+
+/// Resolves on Ctrl+C (non-unix targets have no SIGTERM).
+#[cfg(not(unix))]
+async fn shutdown_signal() {
+    tokio::signal::ctrl_c().await.ok();
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt().init();
@@ -294,11 +310,8 @@ async fn main() {
         listener.local_addr().expect("local_addr")
     );
 
-    let mut sigterm = signal(SignalKind::terminate()).unwrap();
-
     tokio::select! {
-        _ = sigterm.recv() => {},
-        _ = tokio::signal::ctrl_c() => {},
+        _ = shutdown_signal() => {},
         e = axum::serve(listener, app) => {
             e.expect("Server Error");
         },

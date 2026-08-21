@@ -1,0 +1,401 @@
+//! Real-data verification of the g2p_dict (dictionary lookup pipeline).
+use std::path::Path;
+
+use mirae_tts_engine::connect::ConnectMatrix;
+use mirae_tts_engine::dict::Dict;
+use mirae_tts_engine::g2p::g2p_dict::{
+    G2pDicts, WordRecord, codes_to_kps_bytes, conjects_verify, key_str_to_codes,
+    kps_bytes_to_codes, merge_finals, morph_type_code, nonreg_lookup, postprocess,
+    record_to_prosody, split_finals, stage4_cross_word_sandhi, stage7_prosody,
+    stage8_final_markers, to_phoneme_code, word_g2p, word_record_from_readings, word_to_readings,
+};
+use mirae_tts_engine::keypad::KeyPad;
+
+mod common;
+
+/// Early-returns from the test when the real Voice data is not available,
+/// binding the dictionaries as `d`.
+macro_rules! require_dicts {
+    ($d:ident) => {
+        let $d = match dicts() {
+            Some(d) => d,
+            None => {
+                common::skipped("real Voice pkg files");
+                return;
+            }
+        };
+    };
+}
+
+/// Like the engine: exact `KeyPad.Ebd` table when found next to the voice
+/// data, `kps9566` fallback otherwise (identical for hangul / ASCII).
+fn keypad() -> KeyPad {
+    match common::keypad_ebd() {
+        Some(p) => KeyPad::load(p).expect("KeyPad.Ebd must load"),
+        None => KeyPad::fallback(),
+    }
+}
+
+fn dicts() -> Option<G2pDicts<'static>> {
+    let voice_dir = common::voice_dir()?;
+    fn load(dir: &Path, name: &str) -> Dict {
+        Dict::load(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e}"))
+    }
+    let colligation: &'static Dict = Box::leak(Box::new(load(&voice_dir, "colligation.pkg")));
+    let user: &'static Dict = Box::leak(Box::new(load(&voice_dir, "User.pkg")));
+    let nonreg: &'static Dict = Box::leak(Box::new(load(&voice_dir, "NonReg.pkg")));
+    let conjects: &'static Dict = Box::leak(Box::new(load(&voice_dir, "Conjects.pkg")));
+    let connect: &'static ConnectMatrix = Box::leak(Box::new(
+        ConnectMatrix::load(voice_dir.join("Connect.pkg")).unwrap(),
+    ));
+    Some(G2pDicts {
+        colligation,
+        user,
+        nonreg,
+        conjects,
+        connect,
+    })
+}
+
+#[test]
+fn kps_bytes_to_codes_known_syllables() {
+    let kp = keypad();
+    assert_eq!(
+        kps_bytes_to_codes(&kp.convert_str("가")).unwrap(),
+        vec![0x0420]
+    );
+    assert_eq!(
+        kps_bytes_to_codes(&kp.convert_str("조건")).unwrap(),
+        vec![0x3520, 0x04A2]
+    );
+    assert_eq!(
+        kps_bytes_to_codes(&kp.convert_str("돈")).unwrap(),
+        vec![0x1122]
+    );
+    assert!(kps_bytes_to_codes(&[0xa1]).is_none());
+}
+
+#[test]
+fn codes_to_kps_bytes_roundtrip() {
+    let kp = keypad();
+    for w in ["가", "조건", "돈", "좋", "효", "휴", "흐", "나라", "사람"] {
+        let bytes = kp.convert_str(w);
+        let codes = kps_bytes_to_codes(&bytes).unwrap();
+        assert_eq!(codes_to_kps_bytes(&codes).unwrap(), bytes, "roundtrip {w}");
+    }
+    assert_eq!(codes_to_kps_bytes(&[0x8030]).unwrap(), b"0");
+    assert_eq!(codes_to_kps_bytes(&[0x802d]).unwrap(), b"-");
+    assert_eq!(codes_to_kps_bytes(&[0x802e]).unwrap(), b".");
+}
+
+#[test]
+fn key_str_to_codes_conversion() {
+    assert_eq!(key_str_to_codes(&[0x01, 0x14]).unwrap(), vec![0x0420]);
+    assert_eq!(
+        key_str_to_codes(&[0x0d, 0x1c, 0x01, 0x18, 0x2c]).unwrap(),
+        vec![0x3520, 0x04A4]
+    );
+    assert_eq!(key_str_to_codes(&[0x46]).unwrap(), vec![0x8030]);
+    assert_eq!(key_str_to_codes(&[0x45]).unwrap(), vec![0x802d]);
+    assert_eq!(key_str_to_codes(&[0x44]).unwrap(), vec![0x802e]);
+    assert!(key_str_to_codes(&[0x00]).is_none());
+}
+
+#[test]
+fn split_and_merge_finals() {
+    let split = split_finals(&[0x1127]);
+    assert_eq!(split, vec![0x1120, 0x0007]);
+    assert_eq!(merge_finals(&split), vec![0x1127]);
+    assert_eq!(split_finals(&[0x0420]), vec![0x0420]);
+    assert_eq!(split_finals(&[0x1124]), vec![0x1124]);
+}
+
+#[test]
+fn classify_candidate_kinds() {
+    assert_eq!(super_classify(&[0x8030, 0x8031]), 1);
+    assert_eq!(super_classify(&[0x8000 | 0x2d]), 2);
+    assert_eq!(super_classify(&[0x8030, 0x8000 | 0x2d]), 3);
+    assert_eq!(super_classify(&[0x0420]), 0x10);
+}
+
+fn super_classify(codes: &[u16]) -> u8 {
+    mirae_tts_engine::g2p::g2p_dict::classify_candidate(codes)
+}
+
+#[test]
+fn word_to_readings_ga_colligation_hit() {
+    require_dicts!(d);
+    let kp = keypad();
+    let readings = word_to_readings(&d, &kp.convert_str("가"));
+    assert_eq!(readings.len(), 1);
+    assert_eq!(readings[0].bytes, kp.convert_str("가"));
+    assert_eq!(readings[0].marker, 0x1b);
+    assert!(readings[0].packed.is_none());
+}
+
+#[test]
+fn word_g2p_ga_full_pipeline() {
+    require_dicts!(d);
+    let kp = keypad();
+    let readings = word_g2p(&d, &kp.convert_str("가"));
+    assert_eq!(readings.len(), 1);
+    assert_eq!(readings[0].bytes, kp.convert_str("가"));
+    assert_eq!(readings[0].marker, 0x1b);
+}
+
+#[test]
+fn word_g2p_jogeon_fallback() {
+    require_dicts!(d);
+    let kp = keypad();
+    let readings = word_g2p(&d, &kp.convert_str("조건"));
+    assert_eq!(readings.len(), 1);
+    assert_eq!(readings[0].bytes, kp.convert_str("조건"));
+    assert_eq!(readings[0].marker, 0x11);
+}
+
+#[test]
+fn word_to_readings_digit_packed() {
+    require_dicts!(d);
+    let kp = keypad();
+    let readings = word_to_readings(&d, &kp.convert_str("3"));
+    assert!(!readings.is_empty());
+    assert!(readings.iter().all(|r| r.packed.is_some() && r.marker == 1));
+}
+
+#[test]
+fn nonreg_ga_hit() {
+    require_dicts!(d);
+    let kp = keypad();
+    let hit = nonreg_lookup(&d, &kp.convert_str("가")).expect("NonReg must hit 가");
+    assert_eq!(hit.reading, kp.convert_str("가"));
+    assert_eq!(hit.marker, 0x11);
+    assert_eq!(hit.matched, 2);
+    assert!(!hit.records.is_empty());
+    assert_eq!(hit.records[0].kind, 0x11);
+}
+
+#[test]
+fn nonreg_other_hits() {
+    require_dicts!(d);
+    let kp = keypad();
+    {
+        let w = "거";
+        let hit = nonreg_lookup(&d, &kp.convert_str(w)).unwrap_or_else(|| panic!("{w} must hit"));
+        assert_eq!(hit.reading, kp.convert_str(w), "{w} reading");
+        assert_eq!(hit.marker, 0x11, "{w} marker");
+    }
+}
+
+#[test]
+fn nonreg_miss() {
+    require_dicts!(d);
+    let kp = keypad();
+    assert!(nonreg_lookup(&d, &kp.convert_str("조건")).is_none());
+    assert!(nonreg_lookup(&d, b"abc").is_none());
+}
+
+#[test]
+fn conjects_verify_real_pairs() {
+    require_dicts!(d);
+    let hyo = kps_bytes_to_codes(&keypad().convert_str("효")).unwrap();
+    let hyu = kps_bytes_to_codes(&keypad().convert_str("휴")).unwrap();
+    assert!(conjects_verify(&d, &hyo, 0x14, &hyu, 0x14));
+    let ga = kps_bytes_to_codes(&keypad().convert_str("가")).unwrap();
+    let kka = kps_bytes_to_codes(&keypad().convert_str("까")).unwrap();
+    assert!(!conjects_verify(&d, &ga, 0x14, &kka, 0x16));
+}
+
+#[test]
+fn morph_type_code_mapping() {
+    // BUG FIX: replaced arithmetic expression with correct explicit values.
+    assert_eq!(morph_type_code(0x14), Some(&[0x8035][..]));
+    assert_eq!(morph_type_code(0x15), Some(&[0x8033][..]));
+    assert_eq!(morph_type_code(0x16), Some(&[0x8039][..]));
+    assert_eq!(morph_type_code(0x17), Some(&[0x8021][..]));
+    assert_eq!(morph_type_code(0x18), Some(&[0x8023][..]));
+    assert_eq!(morph_type_code(0x19), Some(&[0x803b][..]));
+    assert_eq!(morph_type_code(0x1a), Some(&[0x8025][..]));
+    assert_eq!(morph_type_code(0x1b), Some(&[0x801d][..]));
+    assert_eq!(morph_type_code(0x1c), Some(&[0x8027][..]));
+    assert_eq!(morph_type_code(0x1d), Some(&[0x8029][..]));
+    assert_eq!(morph_type_code(0x1e), Some(&[0x8037, 0x801d][..]));
+    assert_eq!(morph_type_code(0x1f), Some(&[0x8031, 0x8027, 0x801d][..]));
+    assert_eq!(morph_type_code(0x20), Some(&[0x800f][..]));
+    assert_eq!(morph_type_code(0x21), Some(&[0x8019][..]));
+    assert_eq!(morph_type_code(0x22), Some(&[0x801b][..]));
+    assert_eq!(morph_type_code(0x23), Some(&[0x800d][..]));
+    assert_eq!(morph_type_code(0x24), Some(&[0x802d][..]));
+    assert_eq!(morph_type_code(0x25), Some(&[0x802f][..]));
+    assert_eq!(morph_type_code(0x26), Some(&[0x8011][..]));
+    assert_eq!(morph_type_code(0x27), Some(&[0x8013][..]));
+    assert_eq!(morph_type_code(0x28), Some(&[0x8015][..]));
+    assert_eq!(morph_type_code(0x29), Some(&[0x8017][..]));
+    assert_eq!(morph_type_code(0x13), None);
+    assert_eq!(morph_type_code(0x2a), None);
+}
+
+#[test]
+fn to_phoneme_code_voiceinfo_verified() {
+    assert_eq!(to_phoneme_code(0x0420), 0x6c00);
+    assert_eq!(to_phoneme_code(0x1122), 0x0882);
+    assert_eq!(to_phoneme_code(0x1125), 0x2082);
+    assert_eq!(to_phoneme_code(0x04A2), 0x0840);
+}
+
+fn ga_record() -> Option<WordRecord> {
+    let d = dicts()?;
+    let kp = keypad();
+    let readings = word_g2p(&d, &kp.convert_str("가"));
+    Some(word_record_from_readings(&readings))
+}
+
+#[test]
+fn stage1_phoneme_codes_and_12b_conversion() {
+    let Some(mut rec) = ga_record() else {
+        common::skipped("real Voice pkg files");
+        return;
+    };
+    postprocess(std::slice::from_mut(&mut rec));
+    assert_eq!(rec.phoneme_codes, vec![0x6c00]);
+    assert_eq!(rec.phoneme_count, 1);
+    assert_eq!(rec.phoneme_markers.len(), 1);
+    let prosody = record_to_prosody(&rec);
+    assert_eq!(prosody.len(), 1);
+    assert_eq!(prosody[0].code, 0x6c00);
+    let bytes = prosody[0].to_bytes();
+    assert_eq!(bytes.len(), 12);
+    assert_eq!(&bytes[2..4], &[0x00, 0x6c]);
+}
+
+#[test]
+fn stage4_last_record_marker_9() {
+    let Some(ga) = ga_record() else {
+        common::skipped("real Voice pkg files");
+        return;
+    };
+    let mut recs = vec![ga.clone(), ga.clone(), ga];
+    stage4_cross_word_sandhi(&mut recs);
+    assert_eq!(recs[2].rule_marker, 9);
+    assert_eq!(recs[0].rule_flags, [0, 0, 0, 0]);
+}
+
+#[test]
+fn stage7_prosody_weighted_average() {
+    let Some(ga) = ga_record() else {
+        common::skipped("real Voice pkg files");
+        return;
+    };
+    let mut recs = vec![ga.clone(), ga.clone(), ga];
+    recs[0].rule_marker = 2;
+    recs[1].rule_marker = 0;
+    recs[2].rule_marker = 4;
+    stage7_prosody(&mut recs);
+    assert_eq!(recs[0].accent, 3);
+    assert_eq!(recs[1].accent, 0);
+    assert_eq!(recs[2].accent, 4);
+    assert_eq!(recs[2].accent, recs[2].rule_marker);
+}
+
+#[test]
+fn stage8_chunk_boundary_at_60() {
+    let mk = |count: usize, accent: u8| -> WordRecord {
+        WordRecord {
+            phoneme_count: count,
+            accent,
+            phoneme_markers: vec![0; count],
+            ..WordRecord::default()
+        }
+    };
+    let mut recs = vec![mk(30, 0), mk(30, 0), mk(10, 0)];
+    stage8_final_markers(&mut recs);
+    assert_eq!(recs[0].final_marker, 1);
+    assert_eq!(recs[1].final_marker, 5);
+    assert_eq!(recs[2].final_marker, 1);
+    assert!(
+        recs.iter()
+            .all(|r| r.phoneme_markers.iter().all(|&m| m & 0x80 == 0))
+    );
+}
+
+#[test]
+fn stage8_marker_case_mapping() {
+    let mk = |accent: u8| -> WordRecord {
+        WordRecord {
+            phoneme_count: 1,
+            accent,
+            phoneme_markers: vec![0; 1],
+            ..WordRecord::default()
+        }
+    };
+    let mut recs = vec![mk(3), mk(6), mk(8), mk(9), mk(4)];
+    stage8_final_markers(&mut recs);
+    assert_eq!(recs[0].final_marker, 3);
+    assert_eq!(recs[1].final_marker, 2);
+    assert_eq!(recs[2].final_marker, 6);
+    assert_eq!(recs[2].phoneme_markers[0] & 0x80, 0x80);
+    assert_eq!(recs[3].final_marker, 7);
+    assert_eq!(recs[4].final_marker, 5);
+}
+
+#[test]
+fn word_to_phoneme_integration() {
+    require_dicts!(d);
+    let kp = keypad();
+    let mut recs = vec![word_record_from_readings(&word_g2p(
+        &d,
+        &kp.convert_str("가"),
+    ))];
+    postprocess(&mut recs);
+    assert_eq!(recs[0].phoneme_codes, vec![0x6c00]);
+    let mut recs = vec![word_record_from_readings(&word_g2p(
+        &d,
+        &kp.convert_str("조건"),
+    ))];
+    postprocess(&mut recs);
+    assert_eq!(recs[0].phoneme_codes, vec![0x6C87, 0x0840]);
+    let prosody = record_to_prosody(&recs[0]);
+    assert_eq!(prosody.len(), 2);
+    assert_eq!(prosody[0].code, 0x6C87);
+    assert_eq!(prosody[1].code, 0x0840);
+}
+
+#[test]
+fn word_g2p_exception_early_return() {
+    // Verifies EXCEPTION_TABLE is consulted at word_g2p head (FUN_0041f020 branch):
+    // 해당 word that is in EXCEPTION_TABLE must not fall through to morphology fallback.
+    require_dicts!(d);
+    let kp = keypad();
+    // 해서 ([0xc3,0xcd,0xba,0xb7]) → Lookup 하여서 ([0xc2,0xd7,0xca,0xde,0xba,0xb7])
+    // word_g2p should return reading bytes derived from the exception form, not the raw input.
+    let input = kp.convert_str("해서");
+    let readings = word_g2p(&d, &input);
+    assert!(
+        !readings.is_empty(),
+        "exception word_g2p must return a reading"
+    );
+    // The exception lookup form is 하여서 (6 bytes). Direct morphology/fallback of 해서 would
+    // keep marker 0x11; exception path should produce a non-fallback result via lookup form.
+    // Hard-coded expected: word_g2p("해서") yields reading originating from "하여서".
+    let expected_form = kp.convert_str("하여서");
+    // At least one reading's bytes chain should contain the exception form or its segments,
+    // and not be identical to the raw input fallback path.
+    let all_bytes: Vec<u8> = readings
+        .iter()
+        .flat_map(|r| r.bytes.iter().copied())
+        .collect();
+    // Exception path normalizes 해서 → 하여서; verify we don't just echo the input.
+    assert_ne!(
+        readings[0].bytes, input,
+        "exception early-return must not echo input 해서; got {:?}",
+        readings[0].bytes
+    );
+    // And the normalized form should appear (either as exact bytes or as prefix via lookup).
+    assert!(
+        all_bytes
+            .windows(expected_form.len())
+            .any(|w| w == expected_form)
+            || readings.iter().any(|r| r.bytes == expected_form),
+        "exception form 하여서 should appear in word_g2p output, got {:?}",
+        readings.iter().map(|r| r.bytes.clone()).collect::<Vec<_>>()
+    );
+}

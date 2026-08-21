@@ -1,7 +1,7 @@
 //! Needs `VoiceInfo.pkg` + `VoiceData.pkg` under `voice_dir`. stdin or `-t` → WAV or raw PCM to stdout or `-o`.
 
 use std::fs::File;
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::PathBuf;
 
 use clap::{Parser, ValueEnum};
@@ -53,7 +53,7 @@ fn main() -> io::Result<()> {
         Some(t) => t.clone(),
         None => {
             // If stdin is a TTY, don't block waiting for input — require -t/--text or a pipe.
-            if atty::is(atty::Stream::Stdin) {
+            if io::stdin().is_terminal() {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     "no text provided; use -t / --text when running interactively or pipe text to stdin",

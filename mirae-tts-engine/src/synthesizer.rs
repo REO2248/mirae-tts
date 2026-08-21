@@ -1,25 +1,17 @@
-//! Mirae pipeline: KPS segment → phoneme (+Speech/colligation) → unit select → VoiceData PCM.
-
-use std::borrow::Cow;
+//! Public engine entry point: [`TtsEngine`] / [`TtsConfig`].
+//! Wraps the internal [`crate::pipeline::Mirae2Engine`] behind a thread-safe API.
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
-use crate::colligation::Colligation;
-use crate::english::english_to_korean;
-use crate::number::apply_number_conversion;
-use crate::phoneme::{PhonemeUnit, text_to_phonemes_with_context};
-use crate::segmenter::{BreakType, SegKind, segment};
-use crate::speech::SpeechDict;
-use crate::unit_select::{select_units_for_sequence, smooth_pitch_pass};
-use crate::voice_info::{VoiceDataReader, VoiceInfo};
-use crate::wave_render;
-use tracing::{debug, warn};
+use crate::pipeline::{EngineConfig, Mirae2Engine};
 
 #[derive(Debug, Clone)]
 pub struct TtsConfig {
+    /// Output sample rate in Hz (default 22050; original speed 50 × 441).
     pub sample_rate: u32,
+    /// Legacy sentence-end pause in samples (accepted for compatibility, not applied).
     pub sentence_pause: i16,
-    /// Progress and warnings via `tracing`. Default `false` for library embeds; enable for CLI-style feedback.
     pub log_progress: bool,
 }
 
@@ -33,348 +25,84 @@ impl Default for TtsConfig {
     }
 }
 
+/// Candidate locations for `KeyPad.Ebd`, tried in order.
+fn find_keypad_ebd(voice_dir: &Path, voice: &Path) -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    candidates.push(voice.join("KeyPad.Ebd"));
+    candidates.push(voice.join("Data").join("Dictionary").join("KeyPad.Ebd"));
+    if let Some(parent) = voice.parent() {
+        candidates.push(parent.join("Data").join("Dictionary").join("KeyPad.Ebd"));
+        candidates.push(parent.join("KeyPad.Ebd"));
+    }
+    candidates.push(voice_dir.join("KeyPad.Ebd"));
+    candidates.push(voice_dir.join("Data").join("Dictionary").join("KeyPad.Ebd"));
+    candidates.into_iter().find(|p| p.exists())
+}
+
+/// The TTS engine: loads voice data and runs the full pipeline (thread-safe).
 pub struct TtsEngine {
-    voice_info: VoiceInfo,
-    voice_data: VoiceDataReader,
+    inner: Mutex<Mirae2Engine>,
     config: TtsConfig,
-    #[allow(dead_code)]
-    voice_dir: PathBuf,
-    speech_dict: Option<SpeechDict>,
-    #[allow(dead_code)]
-    colligation: Option<Colligation>,
 }
 
 impl TtsEngine {
-    /// VoiceInfo.pkg + VoiceData.pkg required; optional Speech.pkg, colligation.pkg.
+    /// Initialize the engine from `voice_dir` (voice dir, or install root with `Voice/`).
+    /// If `voice_dir` is empty, `MIRAE_VOICE_DIR` env / `DEFAULT_VOICE_DIR` fallback is not auto-used here — callers
+    /// should call `default_voice_dir()` and pass it explicitly when they need env resolution.
     pub fn new<P: AsRef<Path>>(voice_dir: P, config: TtsConfig) -> io::Result<Self> {
-        let voice_dir = voice_dir.as_ref().to_path_buf();
-        let log = config.log_progress;
-
-        let voice_info_path = voice_dir.join("VoiceInfo.pkg");
-        if !voice_info_path.exists() {
+        let voice_dir = voice_dir.as_ref();
+        let voice: PathBuf = if voice_dir.join("VoiceInfo.pkg").exists() {
+            voice_dir.to_path_buf()
+        } else if voice_dir.join("Voice").join("VoiceInfo.pkg").exists() {
+            voice_dir.join("Voice")
+        } else {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("VoiceInfo.pkg not found in {:?}", voice_dir),
+                format!(
+                    "VoiceInfo.pkg not found in {:?} (expected directly or under Voice/)",
+                    voice_dir
+                ),
             ));
-        }
-        let voice_info = VoiceInfo::load(&voice_info_path)?;
-
-        let voice_data_path = voice_dir.join("VoiceData.pkg");
-        if !voice_data_path.exists() {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                format!("VoiceData.pkg not found in {:?}", voice_dir),
-            ));
-        }
-        let voice_data = VoiceDataReader::open(&voice_data_path)?;
-
-        if log {
-            debug!(
-                "[TtsEngine] Initialized with {} voice entries",
-                voice_info.entries.len()
+        };
+        let keypad = find_keypad_ebd(voice_dir, &voice);
+        if keypad.is_none() {
+            eprintln!(
+                "[tts] KeyPad.Ebd not found near {:?} — using approximate KPS9566 fallback (exact original conversion requires KeyPad.Ebd)",
+                voice_dir
             );
         }
 
-        let speech_dict = {
-            let p = voice_dir.join("Speech.pkg");
-            if p.exists() {
-                match SpeechDict::load(&p) {
-                    Ok(d) => {
-                        if log {
-                            debug!("[TtsEngine] Loaded Speech.pkg ({} entries)", d.len());
-                        }
-                        Some(d)
-                    }
-                    Err(e) => {
-                        if log {
-                            warn!("[TtsEngine] Warning: could not load Speech.pkg: {e}");
-                        }
-                        None
-                    }
-                }
-            } else {
-                None
-            }
-        };
-
-        let colligation = {
-            let p = voice_dir.join("colligation.pkg");
-            if p.exists() {
-                match Colligation::load(&p) {
-                    Ok(c) => {
-                        if log {
-                            debug!(
-                                "[TtsEngine] Loaded colligation.pkg ({} nodes, {} rules)",
-                                c.node_count(),
-                                c.record_count()
-                            );
-                        }
-                        Some(c)
-                    }
-                    Err(e) => {
-                        if log {
-                            warn!("[TtsEngine] Warning: could not load colligation.pkg: {e}");
-                        }
-                        None
-                    }
-                }
-            } else {
-                warn!("[TtsEngine] Warning: colligation.pkg is not exists");
-                None
-            }
-        };
+        let mut inner = Mirae2Engine::from_paths(&voice, keypad.as_deref())?;
+        inner.set_debug_log(config.log_progress || std::env::var("MIRAE_DEBUG").is_ok());
+        inner.set_config(EngineConfig::from_public(&config));
 
         Ok(TtsEngine {
-            voice_info,
-            voice_data,
+            inner: Mutex::new(inner),
             config,
-            voice_dir,
-            speech_dict,
-            colligation,
         })
     }
 
     pub fn synthesize(&self, text: &str) -> io::Result<Vec<i16>> {
-        let replaced_text = Self::apply_text_replacements(text);
-        let phonemes = self.text_to_phoneme_sequence(&replaced_text);
-
-        if phonemes.is_empty() {
-            if self.config.log_progress {
-                debug!("[TtsEngine] No phonemes generated for input text");
-            }
-            return Ok(Vec::new());
-        }
-
-        if self.config.log_progress {
-            debug!("[TtsEngine] Generated {} phoneme units", phonemes.len());
-        }
-
-        // Type-1 template hypos before vowel split / CV fallback.
-        let type1_sids: Vec<u16> = phonemes
-            .iter()
-            .filter(|p| p.pause.is_none() && p.syllable_id != 0xFFFF)
-            .map(|p| p.syllable_id)
-            .collect();
-        let type1_matches = if self.colligation.is_some() {
-            crate::colligation::find_type1_matches(&type1_sids)
-        } else {
-            Vec::new()
-        };
-
-        let mut selected = select_units_for_sequence(&self.voice_info, &phonemes, &type1_matches);
-
-        smooth_pitch_pass(&self.voice_info, &phonemes, &mut selected, 15); // Hz outlier threshold
-
-        let matched_count = selected.iter().filter(|s| s.is_some()).count();
-        if self.config.log_progress {
-            debug!(
-                "[TtsEngine] Selected {}/{} voice units",
-                matched_count,
-                phonemes.len()
-            );
-        }
-
-        if matched_count == 0 {
-            if self.config.log_progress {
-                warn!("[TtsEngine] Warning: No voice units matched. Check VoiceInfo.pkg format.");
-            }
-            return Ok(Vec::new());
-        }
-
-        let pcm = wave_render::render_to_pcm(
-            &self.voice_data,
-            &phonemes,
-            &selected,
-            self.config.sentence_pause,
-        )?;
-
-        if self.config.log_progress {
-            debug!("[TtsEngine] Rendered {} PCM samples", pcm.len());
-        }
-
-        Ok(pcm)
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| io::Error::other("TTS engine mutex poisoned"))?;
+        inner.synthesize(text)
     }
 
-    /// Per-segment PCM (lower latency than `synthesize`); `&self` + `Arc` = parallel-safe.
-    pub fn synthesize_streaming<F>(&self, text: &str, mut on_chunk: F) -> io::Result<()>
-    where
-        F: FnMut(Vec<i16>) -> bool,
-    {
-        let kps_bytes = crate::kps9566_encode(text);
-        let segments = segment(&kps_bytes);
-        if segments.is_empty() {
-            return Ok(());
-        }
-
-        let mut prev_col: i8 = 4; // phrase-start row
-
-        let seg_count = segments.len();
-        for (si, seg) in segments.iter().enumerate() {
-            let seg_utf8 = crate::kps9566_decode(seg.bytes);
-
-            let pronunciation: Cow<str> = if seg.kind == SegKind::Korean {
-                if let Some(dict) = &self.speech_dict {
-                    dict.lookup(&seg_utf8)
-                        .map(Cow::Borrowed)
-                        .unwrap_or_else(|| Cow::Borrowed(&seg_utf8))
-                } else {
-                    Cow::Borrowed(&seg_utf8)
-                }
-            } else if seg.kind == SegKind::Latin {
-                Cow::Owned(english_to_korean(&seg_utf8))
-            } else if seg.kind == SegKind::Number {
-                Cow::Owned(apply_number_conversion(&seg_utf8, false))
-            } else {
-                Cow::Borrowed(&seg_utf8)
-            };
-
-            let trailing_break = match seg.break_after {
-                BreakType::Clause => Some(BreakType::Clause),
-                BreakType::Sentence => Some(BreakType::Sentence),
-                BreakType::None => None,
-            };
-
-            let mut seg_units: Vec<PhonemeUnit> = Vec::new();
-            let more = si + 1 < seg_count;
-            let last_col = text_to_phonemes_with_context(
-                &pronunciation,
-                prev_col,
-                trailing_break,
-                seg.after_whitespace,
-                more,
-                &mut seg_units,
-            );
-            prev_col = last_col;
-
-            if seg_units.is_empty() {
-                continue;
-            }
-
-            if let Some(ref coll) = self.colligation {
-                let sids: Vec<u16> = seg_units.iter().map(|u| u.syllable_id).collect();
-                let marks = coll.apply_type45_rules(&sids);
-                for (unit, &marked) in seg_units.iter_mut().zip(marks.iter()) {
-                    unit.colligation_variant = marked;
-                }
-            }
-
-            let type1_sids: Vec<u16> = seg_units
-                .iter()
-                .filter(|p| p.pause.is_none() && p.syllable_id != 0xFFFF)
-                .map(|p| p.syllable_id)
-                .collect();
-            let type1_matches = if self.colligation.is_some() {
-                crate::colligation::find_type1_matches(&type1_sids)
-            } else {
-                Vec::new()
-            };
-
-            let mut selected =
-                select_units_for_sequence(&self.voice_info, &seg_units, &type1_matches);
-            smooth_pitch_pass(&self.voice_info, &seg_units, &mut selected, 15); // Hz
-
-            let pcm = wave_render::render_to_pcm(
-                &self.voice_data,
-                &seg_units,
-                &selected,
-                self.config.sentence_pause,
-            )?;
-
-            if pcm.is_empty() {
-                continue;
-            }
-
-            if !on_chunk(pcm) {
+    pub fn synthesize_streaming<F: FnMut(Vec<i16>) -> bool>(
+        &self,
+        text: &str,
+        mut on_chunk: F,
+    ) -> io::Result<()> {
+        const CHUNK_SAMPLES: usize = 16 * 1024;
+        let pcm = self.synthesize(text)?;
+        for chunk in pcm.chunks(CHUNK_SAMPLES) {
+            if !on_chunk(chunk.to_vec()) {
                 break;
             }
         }
-
         Ok(())
-    }
-
-    /// Mirae private-use placeholders → hangul (same as original resource strings).
-    fn apply_text_replacements(text: &str) -> String {
-        let mut result = text.to_string();
-
-        let replacements: &[(&str, &str)] = &[
-            ("", "김"),
-            ("", "일"),
-            ("", "성"),
-            ("", "김"),
-            ("", "정"),
-            ("", "일"),
-            ("", "김"),
-            ("", "정"),
-            ("", "은"),
-        ];
-
-        for (from, to) in replacements {
-            result = result.replace(from, to);
-        }
-
-        result
-    }
-
-    fn text_to_phoneme_sequence(&self, text: &str) -> Vec<PhonemeUnit> {
-        let kps_bytes = crate::kps9566_encode(text);
-
-        let segments = segment(&kps_bytes);
-
-        if segments.is_empty() {
-            return Vec::new();
-        }
-
-        let mut all_units: Vec<PhonemeUnit> = Vec::with_capacity(segments.len() * 8);
-        let mut prev_col: i8 = 4; // phrase-start row
-
-        let seg_count = segments.len();
-        for (si, seg) in segments.iter().enumerate() {
-            let seg_utf8 = crate::kps9566_decode(seg.bytes);
-
-            let pronunciation: Cow<str> = if seg.kind == SegKind::Korean {
-                if let Some(dict) = &self.speech_dict {
-                    dict.lookup(&seg_utf8)
-                        .map(Cow::Borrowed)
-                        .unwrap_or_else(|| Cow::Borrowed(&seg_utf8))
-                } else {
-                    Cow::Borrowed(&seg_utf8)
-                }
-            } else if seg.kind == SegKind::Latin {
-                Cow::Owned(english_to_korean(&seg_utf8))
-            } else if seg.kind == SegKind::Number {
-                Cow::Owned(apply_number_conversion(&seg_utf8, false))
-            } else {
-                Cow::Borrowed(&seg_utf8)
-            };
-
-            let trailing_break = match seg.break_after {
-                BreakType::Clause => Some(BreakType::Clause),
-                BreakType::Sentence => Some(BreakType::Sentence),
-                BreakType::None => None,
-            };
-
-            let more = si + 1 < seg_count;
-            let last_col = text_to_phonemes_with_context(
-                &pronunciation,
-                prev_col,
-                trailing_break,
-                seg.after_whitespace,
-                more,
-                &mut all_units,
-            );
-
-            prev_col = last_col;
-        }
-
-        if let Some(ref coll) = self.colligation {
-            let sids: Vec<u16> = all_units.iter().map(|u| u.syllable_id).collect();
-            let marks = coll.apply_type45_rules(&sids);
-            for (unit, &marked) in all_units.iter_mut().zip(marks.iter()) {
-                unit.colligation_variant = marked;
-            }
-        }
-
-        all_units
     }
 
     pub fn effective_sample_rate(&self) -> u32 {
@@ -382,7 +110,10 @@ impl TtsEngine {
     }
 
     pub fn voice_entry_count(&self) -> usize {
-        self.voice_info.entries.len()
+        self.inner
+            .lock()
+            .map(|inner| inner.voice_entry_count())
+            .unwrap_or(0)
     }
 
     pub fn config(&self) -> &TtsConfig {
@@ -390,6 +121,10 @@ impl TtsEngine {
     }
 
     pub fn set_config(&mut self, config: TtsConfig) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.set_debug_log(config.log_progress || std::env::var("MIRAE_DEBUG").is_ok());
+            inner.set_config(EngineConfig::from_public(&config));
+        }
         self.config = config;
     }
 }
