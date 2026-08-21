@@ -9,10 +9,13 @@
 - Blueprint: `viterbi_single_chunk` / `cands_by_start` / `MAX_CANDIDATES=214` + `conjects_verify` boundary bonus, CHUNK(60)/PROPAGATE(5).
 - Evidence: fix_morphology.md + g2p_paths.md; implementation sketch in /tmp/g2p.rs.backup (needs lib.rs windowing to activate).
 
-## Stage4 sandhi hooks (TODO)
-- g2p.rs: `sandhi_hook_linking/nasal/aspirate` are stubs returning 0; exact `FUN_0043f290/aaa0/f7f0` (11/2/1 returns) and `PostprocessHooks` wiring are in /tmp/g2p.rs.backup.
-- Requires `WordRecord` expansion to `RawSecondRecord` (SECOND_RECORD_SIZE 0x1dcc, SECOND_*_OFFSET) plus record/tone/lib second pass.
-- Evidence: fix_stage4.md 13KB exact mapping.
+## Stage4 sandhi hooks (DONE @abf03ab)
+- DONE: exact_stage4_linking/nasal/aspirate + PostprocessHooks + RawSecondRecord (SECOND_RECORD_SIZE 0x1dcc) integrated in g2p.rs; stage4_cross_word_sandhi delegates to stage4_cross_word_sandhi_with_hooks(PostprocessHooks::default()). Hooks return 0 without raw analyzer data (evidence-preserving no-op) and fire exact returns when present. rule_flags offsets corrected to [1]/[2]/[3] per b5c1/b5c2/b5c3.
+- Evidence: fix_stage4.md 13KB exact mapping + reports_verify/g2p_stage4_backup_snapshot.rs.
+
+## Remaining
+
+1. lib.rs sentence window (9w) → sentence_morphology_viterbi full DP (bridge added @e42019c)
 
 ## Next step (sequential)
 1. lib.rs sentence window (9w) → g2p second half Viterbi
