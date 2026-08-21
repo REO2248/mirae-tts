@@ -36,7 +36,10 @@ pub mod g2p_dict {
     #[allow(dead_code)]
     pub const PROSODY_W2: f32 = 0.5; // reserved: original binary has this slot at 0x89178 (0.5) but current chain uses W1/W3 only — kept for byte-exact layout
     pub const PROSODY_W3: f32 = 0.95; // DAT_0048917c = 0x3f733333 (verified against Future.exe at file 0x8917c)
-    pub const ACCENT_RANGE: (f32, f32) = (1.86, 2.9);
+    /// FUN_00440470 accent gate (verified by disassembly at 0x40537/0x40644-0x4069b):
+    /// `mov bl,3` default; `fcomp [0x489180]=2.85` then `fcomp [0x489184]=1.8`;
+    /// accent = 0 when 1.8 <= s2 <= 2.85, else bl = 3.
+    pub const ACCENT_RANGE: (f32, f32) = (1.8, 2.85);
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct Reading {
