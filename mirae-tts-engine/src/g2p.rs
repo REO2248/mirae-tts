@@ -798,14 +798,138 @@ pub mod g2p_dict {
         true
     }
 
-    // TODO(cross-word-viterbi): FUN_0044a100 outer loop over 9-word window + FUN_0042a650 Viterbi DP.
-    // word_g2p is single-word API, so cross-word DP needs sentence-level windowing in lib.rs:word_to_records.
-    // See reports_verify/fix_morphology.md for patch preview (viterbi_single_chunk/cands_by_start/MAX_CANDIDATES=214).
+    // Cross-word 9w window entry point: sentence_morphology_viterbi below.
+    // Intra-word Viterbi (FUN_0042a650) implemented in viterbi_single_chunk.
+    /// Intra-word Viterbi (FUN_0042a650): split_finals lattice, dictionary
+    /// candidates per start position (colligation → user), conjects_verify
+    /// boundary bonus, length bonus. Falls back to word_to_readings_codes when
+    /// no dictionary segmentation scores above the pure-fallback baseline.
+    pub fn viterbi_single_chunk(
+        dicts: &G2pDicts,
+        codes: &[u16],
+        orig_bytes: &[u8],
+    ) -> Option<Vec<Reading>> {
+        let split = split_finals(codes);
+        let n = split.len();
+        if n == 0 {
+            return None;
+        }
+        // cands_by_start[start] = list of (len, has_dict_hit)
+        let mut cands_by_start: Vec<Vec<(usize, bool)>> = vec![Vec::new(); n + 1];
+        for start in 0..n {
+            for len in 1..=(n - start) {
+                if cands_by_start[start].len() >= MAX_CANDIDATES {
+                    break;
+                }
+                let cand = &split[start..start + len];
+                let cls = classify_candidate(cand);
+                let mut hit = false;
+                if cls == 0x10 {
+                    if let Some(key) = key_from_syllables(cand) {
+                        hit = dicts.colligation.lookup_records(&key).is_some()
+                            || dicts.user.lookup_records(&key).is_some();
+                    }
+                } else if cls == 1 || cls == 2 {
+                    hit = true;
+                }
+                cands_by_start[start].push((len, hit));
+            }
+        }
+        // dp_score[i] = best score covering first i syllables; dp_prev[i] = previous boundary
+        const NEG: f32 = -1.0e9;
+        let mut dp_score = vec![NEG; n + 1];
+        let mut dp_prev = vec![usize::MAX; n + 1];
+        dp_score[0] = 0.0;
+        for i in 0..n {
+            if dp_score[i] <= NEG / 2.0 {
+                continue;
+            }
+            for &(len, hit) in &cands_by_start[i] {
+                let j = i + len;
+                let mut score = dp_score[i] + len as f32 * 0.5;
+                if hit {
+                    score += 10.0;
+                    // conjects boundary bonus against previous segment end
+                    if i > 0 && dp_prev[i] != usize::MAX {
+                        let prev_seg = &split[dp_prev[i]..i];
+                        let cur_seg = &split[i..j];
+                        if conjects_verify(
+                            dicts,
+                            prev_seg,
+                            MORPH_TYPE_BASE,
+                            cur_seg,
+                            MORPH_TYPE_BASE,
+                        ) {
+                            score += 3.0;
+                        }
+                    }
+                }
+                if score > dp_score[j] {
+                    dp_score[j] = score;
+                    dp_prev[j] = i;
+                }
+            }
+        }
+        if dp_score[n] <= NEG / 2.0 {
+            return None;
+        }
+        // Reconstruct boundaries
+        let mut bounds = Vec::new();
+        let mut cur = n;
+        while cur > 0 {
+            let prev = dp_prev[cur];
+            if prev == usize::MAX {
+                return None;
+            }
+            bounds.push((prev, cur));
+            cur = prev;
+        }
+        bounds.reverse();
+        // Emit readings along the best path; any segment without a dict hit is
+        // emitted via word_to_readings_codes fallback for that slice.
+        let mut all: Vec<Reading> = Vec::new();
+        let mut any_hit = false;
+        for &(s, e) in &bounds {
+            let seg = &split[s..e];
+            let seg_key = key_from_syllables(seg);
+            let hit = seg_key.as_ref().is_some_and(|k| {
+                dicts.colligation.lookup_records(k).is_some()
+                    || dicts.user.lookup_records(k).is_some()
+            });
+            if hit {
+                if let Some(key) = seg_key {
+                    let recs = dicts
+                        .colligation
+                        .lookup_records(&key)
+                        .or_else(|| dicts.user.lookup_records(&key));
+                    if let Some(recs) = recs {
+                        if let Some(r) = reading_from_hit(seg, &recs) {
+                            all.push(r);
+                            any_hit = true;
+                            continue;
+                        }
+                    }
+                }
+            }
+            all.extend(word_to_readings_codes(dicts, seg, orig_bytes));
+        }
+        if all.is_empty() || !any_hit {
+            // pure fallback — let caller fall through to NonReg/alphabet/fallback
+            return None;
+        }
+        Some(all)
+    }
+
     pub fn morphology_skeleton(
         dicts: &G2pDicts,
         codes: &[u16],
         orig_bytes: &[u8],
     ) -> Option<Vec<Reading>> {
+        // Golden-matching greedy path (colligation → user longest match).
+        // The Viterbi lane is exposed via sentence_morphology_viterbi for
+        // cross-word windows; enabling it intra-word changed segmentation vs
+        // the Future.exe goldens (e2e pcm_len 40005 -> 84844) and is therefore
+        // kept behind the sentence-level API until oracle-verified.
         let words: [&[u16]; 1] = [codes];
         let mut all: Vec<Reading> = Vec::new();
         let mut segments: Vec<Vec<u16>> = Vec::new();
@@ -831,24 +955,51 @@ pub mod g2p_dict {
     /// For now delegates to per-word morphology_skeleton but validates cross-word
     /// conjects_verify at window boundaries, which is the minimal observable parity
     /// for cross-word DP without requiring full sentence DP state.
+    /// Sentence-level morphology Viterbi (9w window, FUN_0044a100 outer loop).
+    /// Runs intra-word Viterbi per window and validates cross-word boundaries
+    /// with conjects_verify; windows failing the boundary check fall back to
+    /// plain word_to_readings_codes for that window (original behavior).
+    /// Sentence-level morphology Viterbi (9w window, FUN_0044a100 outer loop).
+    /// Runs the true intra-word Viterbi DP (viterbi_single_chunk) per window and
+    /// validates cross-word boundaries with conjects_verify; windows failing the
+    /// boundary check fall back to the greedy pipeline for that window.
     pub fn sentence_morphology_viterbi(
         dicts: &G2pDicts,
         windows: &[Vec<u16>],
         orig_bytes_list: &[Vec<u8>],
     ) -> Vec<Option<Vec<Reading>>> {
-        let mut out = Vec::with_capacity(windows.len());
+        let mut out: Vec<Option<Vec<Reading>>> = Vec::with_capacity(windows.len());
         for (i, codes) in windows.iter().enumerate() {
             let orig = orig_bytes_list.get(i).map(|v| v.as_slice()).unwrap_or(&[]);
-            let res = morphology_skeleton(dicts, codes, orig);
-            // Cross-word validation: if previous window had a reading, verify conjects at boundary
+            let res = viterbi_single_chunk(dicts, codes, orig);
+            // Cross-word boundary check against previous accepted window
             if i > 0 {
                 if let (Some(prev), Some(cur)) = (
                     out.last().and_then(|x: &Option<Vec<Reading>>| x.as_ref()),
                     res.as_ref(),
                 ) {
-                    // Best-effort: derive codes for verification from first reading's syllable proxy
-                    // If hard to derive, skip — this keeps parity without breaking existing tests.
-                    let _ = (prev, cur);
+                    let prev_codes = prev
+                        .first()
+                        .and_then(|r| kps_bytes_to_codes(&r.bytes))
+                        .unwrap_or_default();
+                    let cur_codes = cur
+                        .first()
+                        .and_then(|r| kps_bytes_to_codes(&r.bytes))
+                        .unwrap_or_default();
+                    if !prev_codes.is_empty()
+                        && !cur_codes.is_empty()
+                        && !conjects_verify(
+                            dicts,
+                            &prev_codes,
+                            MORPH_TYPE_BASE,
+                            &cur_codes,
+                            MORPH_TYPE_BASE,
+                        )
+                    {
+                        // Boundary rejected: fall back to greedy pipeline for this window
+                        out.push(morphology_skeleton(dicts, codes, orig));
+                        continue;
+                    }
                 }
             }
             out.push(res);
