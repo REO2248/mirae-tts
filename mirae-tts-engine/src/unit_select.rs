@@ -783,8 +783,13 @@ impl<'a> UnitSelector<'a> {
             if mid_lo < idx_i8 {
                 idx_i8 = mid_lo;
             }
-            // other (+4 link) class /10 — request class hi of this unit
-            let other_hi = ((req_classes[i] / 10) as i8).min(127);
+            // other (+4 link) = adjacent candidate node's class /10
+            // (b850/b320 walk the candidate list; nearest neighbor approximates it)
+            let other_hi = if i + 1 < n {
+                ((class_bytes[i + 1] as i8) / 10).min(127)
+            } else {
+                ((req_classes[i] / 10) as i8).min(127)
+            };
             if idx_i8 > other_hi {
                 idx_i8 = other_hi;
             }
