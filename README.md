@@ -1,11 +1,6 @@
 # mirae-tts
 
-<img width="800" height="279" alt="image" src="https://github.com/user-attachments/assets/8d2d1eb9-fa88-4ef3-96d1-6e2946020008" />
-
 Rust implementation of the 《미래》2.0 TTS : command-line tool, optional HTTP API, and library crate.
-
-## Official Hosted Instance
-https://miraetts.yr32.net/
 
 ## CLI (`mirae-tts-cli`)
 
